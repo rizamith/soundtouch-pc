@@ -183,9 +183,10 @@ Existing shortcuts and Python launchers can contain absolute paths.
 
 If this project is useful to you, you can support its development through PayPal:
 
-[**Contribute via PayPal**](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=rzamith%40msn.com&item_name=SoundTouch%20PC%20development&currency_code=EUR)
+[**Contribute via PayPal**](https://paypal.me/RZamith)
 
-Contributions are optional. The recipient account is identified by `rzamith@msn.com`.
+Contributions are optional. The link opens the project's PayPal.Me profile,
+where you can choose the amount you would like to contribute.
 
 ## References
 
