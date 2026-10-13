@@ -1,0 +1,19 @@
+{
+  "speaker_ip": "192.168.1.88",
+  "speaker_id": "REPLACE_WITH_QUARTOS_DEVICE_ID",
+  "speaker_name": "Quartos",
+  "port": 18788,
+  "enabled": true,
+  "speakers": {
+    "Quartos": {
+      "ip": "192.168.1.88",
+      "id": "REPLACE_WITH_QUARTOS_DEVICE_ID",
+      "model": "SoundTouch SA-5"
+    },
+    "Sala": {
+      "ip": "192.168.1.90",
+      "id": "REPLACE_WITH_SALA_DEVICE_ID",
+      "model": "Cinemate"
+    }
+  }
+}

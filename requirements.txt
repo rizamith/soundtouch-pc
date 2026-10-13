@@ -1,0 +1,8 @@
+comtypes==1.4.17
+lameenc==1.8.4
+pillow==12.3.0
+psutil==7.2.2
+PyAudioWPatch==0.2.12.9
+pycaw==20260927
+pystray==0.19.5
+six==1.17.0
