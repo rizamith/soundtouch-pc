@@ -1,114 +1,194 @@
-# SoundTouch — Quartos e Sala por Wi-Fi
+# SoundTouch PC
 
-App Windows para a Bose SoundTouch SA-5 Quartos e Bose Cinemate Sala.
-Captura a saída predefinida Windows através de WASAPI, codifica MP3 estéreo a
-320 kbps e transmite por HTTP/UPnP à coluna. Não depende da cloud Bose.
+Stream Windows audio to Bose SoundTouch speakers over your local Wi-Fi network.
 
-## Utilização
+SoundTouch PC captures Windows playback audio through WASAPI, encodes stereo
+MP3 at 320 kbps, and serves a live HTTP stream to the selected speaker using
+its UPnP renderer. Audio streaming and speaker control use local network
+interfaces and do not require the Bose cloud service.
 
-A app arranca ao iniciar sessão no Windows e fica junto ao relógio.
-Faça duplo clique no ícone verde para abrir o painel **SoundTouch**.
-Escolha **Quartos**, **Sala** ou **Este PC** para decidir onde ouvir.
-Ao mudar de coluna, a app para a anterior e adota o volume da nova coluna.
-A última seleção é guardada para o próximo arranque. Também pode escolher
-a saída **SoundTouch Wi-Fi** no seletor de som normal do Windows: a app deteta
-essa seleção e estabelece a ligação automaticamente.
+The current interface supports **Quartos** (a SoundTouch SA-5), **Sala** (a Bose
+Cinemate with SoundTouch), and the PC's local audio output. Other models have
+not been verified; this is not currently a universal DLNA speaker picker.
+The desktop interface is in Portuguese. Room names and button labels below
+match that interface.
 
-**Este PC** restaura a saída anterior e pausa a ponte. **Usar Spotify** liberta
-a coluna para outra fonte. **Restabelecer ligação** volta a enviar áudio do PC.
-A app não retoma à força se entretanto escolher Spotify.
+## Features
 
-O slider do painel e o volume Windows controlam o volume da coluna (0–100).
-As teclas de volume e o botão de silenciar do Windows são sincronizados.
-Mudanças na coluna também atualizam o slider Windows. Ao ligar, a app adota
-o volume atual da coluna para evitar um salto para um valor antigo do PC.
-O volume individual do VLC e de cada app continua a regular o sinal dessa app.
+- Play audio from VLC, browsers, and other Windows applications on a Bose speaker.
+- Choose Quartos, Sala, or the PC's local output from a desktop panel.
+- Control speaker volume and mute with the Windows slider and keyboard keys.
+- Reflect changes made on the speaker back in the Windows volume slider.
+- Preserve each speaker's volume when switching rooms.
+- Remember the selected room and start automatically when you sign in to Windows.
+- Release the speaker for Spotify or another source.
+- Detect changes to the default Windows output and retry network connections.
 
-## Instalação e arranque
+## Requirements
 
-Requisitos: Windows 10/11 de 64 bits, Python 3.14 de 64 bits e as duas colunas
-SoundTouch acessíveis na mesma rede. O painel atual tem as escolhas Quartos e
-Sala; não é um controlador universal de todos os dispositivos DLNA.
+- Windows 10 or 11, 64-bit.
+- Python 3.14, 64-bit, available as `python` in PowerShell.
+- Both configured SoundTouch speakers accessible on the PC's local network.
+- [VB-CABLE for Windows](https://vb-audio.com/Cable/), installed separately.
+- Administrator privileges for driver installation and firewall configuration.
 
-1. Clone este repositório numa pasta permanente do PC.
-2. Atualize os endereços IP em `config.example.json`, se necessário.
-3. Abra PowerShell nessa pasta e execute `powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1`.
-   O script cria `.venv`, instala as dependências e consulta as colunas para
-   criar `config.json` com os seus identificadores reais. Não substitui uma
-   configuração já existente.
-4. Descarregue o pacote Windows VB-CABLE no [site oficial](https://vb-audio.com/Cable/)
-   e extraia o conteúdo para `vendor\vbcable`. O driver de terceiros não é
-   distribuído neste repositório. Se já estiver instalado, salte este passo.
-5. Abra PowerShell como administrador e execute
-   `powershell -NoProfile -ExecutionPolicy Bypass -File .\admin-setup.ps1`.
-   O script cria a firewall e, se necessário, abre o instalador oficial para
-   escolher **Install Driver**. Reinicie quando o instalador pedir.
-6. Execute `.\.venv\Scripts\pythonw.exe .\bridge.py --panel` e depois
-   `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-shortcuts.ps1`.
-   Fica criado o atalho **SoundTouch** no Ambiente de Trabalho e no arranque.
+VB-CABLE is a virtual audio device. The Windows output named **SoundTouch Wi-Fi**
+is that virtual device, renamed by this project. The bridge then sends its
+audio to the physical Bose speaker. Network discovery alone does not turn a
+speaker into a native Windows playback device.
 
-Se o VB-CABLE já era a saída predefinida ao configurar, selecione primeiro a
-saída local no Windows e depois Quartos ou Sala no painel; assim a app guarda
-a saída local que deve restaurar quando escolher **Este PC**.
+## Installation
 
-`config.json`, logs, instaladores, cópias de drivers e resultados dos testes
-são locais e ignorados pelo Git. Guarde à parte uma cópia de `config.json`
-se quiser restaurar exatamente os endereços e a última seleção deste PC.
+1. Clone the repository into a permanent folder:
 
-Ambiente Python privado em `.venv`. Atalhos no Ambiente de Trabalho e na pasta
-Startup. `admin-setup.ps1` cria uma regra TCP 18788 apenas para os endereços das
-duas colunas e abre o instalador oficial, assinado, de VB-CABLE quando necessário.
-`add-sala-firewall.ps1` atualiza a regra existente para admitir as duas colunas.
-A saída é renomeada através da política de áudio do Windows, sem alterar permissões do registo.
-A instalação de VB-CABLE deve ser concluída na sua janela; o fabricante pede
-reinício do PC. Não reinicie durante uma sessão com trabalho por guardar.
+   ```powershell
+   git clone https://github.com/rizamith/soundtouch-pc.git
+   cd soundtouch-pc
+   ```
 
-O nome `SoundTouch Wi-Fi` é aplicado à saída virtual local. A coluna física
-continua a ser encontrada pela app, não é um dispositivo WASAPI nativo.
-A saída virtual é necessária para encaminhar o áudio Windows para esta app.
+2. Adjust the IP addresses in `config.example.json` if necessary. The example
+   uses `192.168.1.88` for Quartos and `192.168.1.90` for Sala. The speaker
+   names must match those rooms.
 
-## Limitações
+3. Create the Python environment and local configuration:
 
-Há atraso do codificador e do buffer da SoundTouch: pode ser inadequado para
-jogos/chamadas e requer compensação no VLC ao ver vídeo. Não foi implementada
-sincronização automática de vídeo. O atraso deve ser medido no equipamento.
-A rede e a coluna têm de estar disponíveis. Grupos cujo mestre seja outra
-coluna são indicados no registo e devem ser desagrupados na app SoundTouch.
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
+   ```
 
-A app verifica alterações da saída Windows e volta a capturá-la. O endereço
-IP inicial é 192.168.1.88; SSDP tenta reencontrar o mesmo dispositivo se mudar.
-A regra de firewall admite 192.168.1.88 e 192.168.1.90: atualize a regra
-se mudar o IP da coluna, ou reserve ambos no DHCP do router.
+   This installs pinned dependencies into `.venv` and queries the speakers to
+   generate `config.json` with their actual IDs. An existing configuration
+   is preserved. Use `-PythonCommand` to specify another Python executable.
 
-Diagnóstico: `http://127.0.0.1:18788/status` e `bridge.log` (registo rotativo).
-A transmissão só aceita pedidos da coluna e do localhost e usa URL aleatório.
-Não captura microfone nem grava o áudio em disco.
+4. Download the Windows VB-CABLE package from its
+   [official website](https://vb-audio.com/Cable/) and extract its contents
+   into `vendor\vbcable`. Skip this step if VB-CABLE is already installed.
+   The third-party installer and driver are not distributed in this repository.
 
-## Verificação e diagnóstico
+5. Open PowerShell as administrator and run:
 
-- `python -m py_compile bridge.py`: valida a sintaxe sem reproduzir áudio.
-- `.\.venv\Scripts\python.exe .\check-speaker-switch.py`: testa reprodução
-  e sincronização de volume em Sala e Quartos; altera temporariamente a fonte
-  nas duas colunas. Feche primeiro a app para libertar a porta HTTP.
-- `.\.venv\Scripts\python.exe .\generate-test-tone.py` e depois
-  `.\.venv\Scripts\python.exe .\check-audio.py`: geram e reproduzem um tom
-  suave, verificando captura de áudio real e envio à coluna pela app ativa.
-- `inspect-outputs.py` e `test-realtek.py`: inspecionam saídas e testam
-  diretamente a Realtek, respetivamente. O teste pode reproduzir tons audíveis.
-- `restart-realtek.ps1`: ferramenta de reparação específica para o ASUS PB60;
-  requer administrador, exporta o driver e reinicia apenas o dispositivo
-  Realtek correspondente. Não faz parte do funcionamento normal da app.
-- `realtek-effects.py`: diagnóstico opcional dos efeitos Realtek;
-  `--disable` e `--restore` modificam/restauram a configuração, usando uma
-  cópia local. Não foi necessário desativar efeitos na instalação original.
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\admin-setup.ps1
+   ```
 
-## Remover
+   This adds the firewall rule and opens the official VB-CABLE installer when
+   needed. Choose **Install Driver** and restart Windows if requested.
+   The installer signature is checked before it is launched.
 
-Escolha Este PC, depois Sair no ícone junto ao relógio. Apague os atalhos de Startup e
-do Ambiente de Trabalho. Remova a regra `SoundTouch Quartos - audio local`
-num PowerShell administrador. Para remover VB-CABLE use o instalador oficial
-e reinicie, conforme instruções do fabricante. A pasta da app pode ser
-apagada depois de a fechar.
+6. Start the panel and create the desktop and Startup shortcuts:
 
-Fontes: https://vb-audio.com/Cable/ e
-https://github.com/s0d3s/PyAudioWPatch.
+   ```powershell
+   .\.venv\Scripts\pythonw.exe .\bridge.py --panel
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\install-shortcuts.ps1
+   ```
+
+   The **SoundTouch** shortcut starts the application. It also launches
+   automatically when you sign in to Windows.
+
+If VB-CABLE was already the default output during setup, first select your
+local speakers in Windows, then select Quartos or Sala in the panel. This
+lets the bridge remember the local output to restore when you choose the PC.
+
+## Everyday use
+
+Double-click the green system-tray icon to open the panel.
+
+| Panel control | Behavior |
+| --- | --- |
+| **Quartos** | Stop the previous speaker stream and play PC audio in Quartos. |
+| **Sala** | Stop the previous speaker stream and play PC audio in Sala. |
+| **Este PC** | Restore the previous local Windows output and pause streaming. |
+| Volume slider | Adjust the selected speaker's volume; Windows volume keys work too. |
+| **Usar Spotify** | Pause streaming and release the speaker for another source. |
+| **Restabelecer ligação** | Reconnect the selected speaker to the PC stream. |
+
+Selecting **SoundTouch Wi-Fi** in the Windows output selector activates the
+bridge for the last selected room. The bridge does not force playback back
+to the PC if you subsequently select Spotify on the speaker.
+
+Application volume controls, such as VLC's slider, still affect their own
+audio. The Windows master slider is synchronized with the selected speaker.
+On connection, the bridge adopts the speaker's current volume to avoid a jump
+to a stale virtual-device setting.
+
+Closing the panel leaves the bridge running. Choose **Sair** in the tray menu
+to quit; the application attempts to restore the local PC output.
+
+## Configuration and backups
+
+`config.json` contains the selected room, speaker addresses and IDs, HTTP
+port, and previous local Windows output. It is generated locally and ignored
+by Git. Keep a separate copy to restore this PC's exact configuration.
+
+The default stream port is TCP **18788**. The firewall rule restricts inbound
+traffic to the two configured speaker IP addresses. The stream endpoint also
+checks the requesting IP address and uses a random URL token. Status requests
+are accepted only from localhost.
+
+SSDP attempts to rediscover the selected speaker if its IP changes, but the
+firewall must still allow its current address. DHCP reservations are recommended.
+Run `add-sala-firewall.ps1` as administrator to refresh the existing firewall
+address filter from `config.json`.
+
+Python environments, installers, driver backups, logs, generated icons, test
+results, and local configuration are excluded from Git.
+
+## Limitations
+
+- Encoding and the SoundTouch buffer introduce latency. Games or calls may
+  be unsuitable, and video can require manual audio synchronization in VLC.
+  Automatic video synchronization is not implemented.
+- The PC, application, and selected speaker must remain available on the same network.
+- One speaker is selected at a time; synchronized multi-room playback is not implemented.
+- If a speaker belongs to a group led by another speaker, ungroup it in the
+  SoundTouch application before using the bridge.
+- Compatibility was verified with the SA-5 in Quartos and the Cinemate in Sala.
+  Other models and arbitrary DLNA renderers have not been verified.
+
+The bridge captures playback audio, not the microphone, and does not save
+the audio stream to disk.
+
+## Diagnostics and verification
+
+Status is available at `http://127.0.0.1:18788/status` while the bridge runs.
+The rotating `bridge.log` records connections, capture failures, and volume updates.
+
+| Tool | Purpose |
+| --- | --- |
+| `python -m py_compile bridge.py` | Check Python syntax without playing audio. |
+| `check-speaker-switch.py` | Test streaming and volume synchronization in both rooms. Quit the tray app first to free the HTTP port. This temporarily changes both speakers' sources. |
+| `generate-test-tone.py`, then `check-audio.py` | Generate a quiet tone and verify capture and delivery through the running bridge. |
+| `inspect-outputs.py` | Inspect playback devices, volume, mute, and audio sessions. |
+| `test-realtek.py` | Play tones directly through Realtek, independently of the bridge. |
+| `restart-realtek.ps1` | ASUS PB60 repair helper: back up the matching Realtek driver and restart that device. Requires administrator privileges. |
+| `realtek-effects.py` | Inspect Realtek effects. Optional `--disable` and `--restore` switches modify or restore effects using a local backup. |
+
+Run Python diagnostics using `.\.venv\Scripts\python.exe`. Audio tests can
+produce audible tones. Realtek repair helpers are optional and are not part
+of normal bridge operation. In the original setup, restarting Realtek restored
+the PC's internal speaker output without reinstalling its driver.
+
+## Uninstalling or moving the application
+
+Choose **Este PC**, then **Sair**. Remove the desktop and Startup shortcuts.
+Remove the firewall rule named `SoundTouch Quartos - audio local` using an
+administrator PowerShell window. Remove VB-CABLE with its official installer
+and restart Windows as instructed by the manufacturer.
+
+To move the project, quit it before moving the folder, recreate `.venv` with
+`setup.ps1` if necessary, and rerun `install-shortcuts.ps1` from the new location.
+Existing shortcuts and Python launchers can contain absolute paths.
+
+## Support development
+
+If this project is useful to you, you can support its development through PayPal:
+
+[**Contribute via PayPal**](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=rzamith%40msn.com&item_name=SoundTouch%20PC%20development&currency_code=EUR)
+
+Contributions are optional. The recipient account is identified by `rzamith@msn.com`.
+
+## References
+
+- [VB-CABLE](https://vb-audio.com/Cable/)
+- [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch)
+- [Bose SoundTouch API documentation](https://assets.bosecreative.com/m/496577402d128874/original/SoundTouch-Web-API.pdf)
