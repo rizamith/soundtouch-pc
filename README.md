@@ -137,6 +137,13 @@ Selecting **SoundTouch Wi-Fi** in the Windows output selector activates the
 bridge for the last selected room. The bridge does not force playback back
 to the PC if you subsequently select Spotify on the speaker.
 
+Switching the speaker off, pausing it, or stopping playback from the SoundTouch
+mobile app or its physical controls also pauses this bridge. That choice is
+saved across application restarts. To resume PC audio, select the room again
+or click **Restabelecer ligação**. Automatic transport recovery only resumes
+a disconnected stream when the speaker still reports playback or buffering;
+it does not wake a speaker that reports standby.
+
 Application volume controls, such as VLC's slider, still affect their own
 audio. The Windows master slider is synchronized with the selected speaker.
 On connection, the bridge adopts the speaker's current volume to avoid a jump
@@ -180,6 +187,10 @@ The bridge captures playback audio, not the microphone, and does not save
 the audio stream to disk.
 
 ## Diagnostics and verification
+
+Run the offline playback-control regression tests with
+`.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
+These tests do not send commands to real speakers.
 
 Status is available at `http://127.0.0.1:18788/status` while the bridge runs.
 The rotating `data/logs/bridge.log` records connections, capture failures, and volume updates.

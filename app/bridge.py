@@ -256,34 +256,57 @@ class Bridge:
         except Exception:
             LOG.exception('Descoberta SSDP')
 
+    def monitor_once(self):
+        """Reconnect transport failures, but respect a speaker-side stop or pause."""
+        with self.control_lock:
+            if self.output_active is None:
+                self.status = 'A preparar saída de áudio…'
+            elif not self.output_active:
+                self.status = f'{self.speaker_name} disponível — seleciona SoundTouch no Windows'
+                if self.clients:
+                    np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
+                    if np.get('source') == 'UPNP':
+                        self.soap('Stop', {'InstanceID': 0})
+            elif self.enabled:
+                np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
+                with self.lock:
+                    listening = bool(self.clients)
+                source = np.get('source')
+                playback = np.findtext('playStatus')
+                force = self.reconnect.is_set()
+                if force:
+                    self.connect()
+                    self.reconnect.clear()
+                    self.status = f'{self.speaker_name} · ligado' if self.clients else f'A ligar a {self.speaker_name}…'
+                elif source == 'STANDBY' or (source == 'UPNP' and playback in ('PAUSE_STATE', 'STOP_STATE')):
+                    # A control app or physical button changed playback. Do not undo it,
+                    # even if the HTTP client has not closed yet. Persist across restarts.
+                    self.enabled = False
+                    self.reconnect.clear()
+                    self.save()
+                    with self.lock:
+                        for client in self.clients:
+                            while not client.empty():
+                                client.get_nowait()
+                            client.put_nowait(None)
+                        self.clients.clear()
+                    self.status = f'{self.speaker_name} · em pausa na coluna'
+                    LOG.info('%s stopped externally: source=%s, state=%s', self.speaker_name, source, playback)
+                elif not listening and source == 'UPNP' and playback in ('PLAY_STATE', 'BUFFERING_STATE'):
+                    self.connect()
+                    self.status = f'A ligar a {self.speaker_name}…'
+                elif listening and source == 'UPNP':
+                    self.status = f'{self.speaker_name} · ligado'
+                else:
+                    self.status = f'{self.speaker_name} noutra fonte — restabelece a ligação para retomar'
+            else:
+                self.status = f'{self.speaker_name} · em pausa'
+
     def monitor(self):
         failures = 0
         while not self.stop.is_set():
             try:
-                with self.control_lock:
-                    if self.output_active is None:
-                        self.status = 'A preparar saída de áudio…'
-                    elif not self.output_active:
-                        self.status = f'{self.speaker_name} disponível — seleciona SoundTouch no Windows'
-                        if self.clients:
-                            np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
-                            if np.get('source') == 'UPNP':
-                                self.soap('Stop', {'InstanceID': 0})
-                    elif self.enabled:
-                        np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
-                        with self.lock:
-                            listening = bool(self.clients)
-                        force = self.reconnect.is_set()
-                        if force or (not listening and np.get('source') in ('UPNP', 'STANDBY', 'INVALID_SOURCE')):
-                            self.connect()
-                            self.reconnect.clear()
-                            self.status = f'{self.speaker_name} · ligado' if self.clients else f'A ligar a {self.speaker_name}…'
-                        elif listening:
-                            self.status = f'{self.speaker_name} · ligado'
-                        else:
-                            self.status = f'{self.speaker_name} noutra fonte — restabelece a ligação para retomar'
-                    else:
-                        self.status = 'Ponte em pausa'
+                self.monitor_once()
                 failures = 0
             except Exception as e:
                 failures += 1
@@ -330,7 +353,7 @@ class Bridge:
                 now = time.monotonic()
                 if previous is None or state != previous or now - last_poll >= 1:
                     with self.control_lock:
-                        if volume_speaker != self.ip:
+                        if volume_speaker != self.ip or not (self.output_active and self.enabled and self.clients):
                             previous = None
                             continue
                         xml = ET.fromstring(request(f'http://{self.ip}:8090/volume'))
@@ -583,7 +606,7 @@ class Bridge:
                 message.set(errors.get_nowait())
             active = self.output_active and self.enabled
             status_label.configure(text=(f'●  {self.speaker_name} · ligado' if active and self.clients else
-                                         f'●  {self.speaker_name} livre para Spotify' if not self.enabled and self.output_active else
+                                         f'●  {self.speaker_name} · em pausa' if not self.enabled and self.output_active else
                                          '●  A ouvir neste PC' if self.output_active is False else f'●  A ligar a {self.speaker_name}…'),
                                    fg=accent if active and self.clients else dim)
             info_label.configure(text=f'Bose {self.cfg["speakers"][self.speaker_name]["model"]} · Wi-Fi')
