@@ -19,11 +19,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import lameenc
 import pyaudiowpatch as pa
 
-ROOT = Path(__file__).resolve().parent
-CONFIG = ROOT / 'config.json'
+ROOT = Path(__file__).resolve().parents[1]
+DATA = ROOT / 'data'
+ASSETS = DATA / 'assets'
+for directory in (DATA / 'logs', ASSETS, DATA / 'reports'):
+    directory.mkdir(parents=True, exist_ok=True)
+CONFIG = DATA / 'config.json'
+if not CONFIG.exists() and (ROOT / 'config.json').exists():
+    (ROOT / 'config.json').replace(CONFIG)
 LOG = logging.getLogger('quartos')
 LOG.setLevel(logging.INFO)
-handler = RotatingFileHandler(ROOT / 'bridge.log', maxBytes=1_000_000, backupCount=3, encoding='utf-8')
+handler = RotatingFileHandler(DATA / 'logs' / 'bridge.log', maxBytes=1_000_000, backupCount=3, encoding='utf-8')
 handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
 LOG.addHandler(handler)
 
@@ -481,8 +487,8 @@ class Bridge:
         comtypes.CoInitialize()
         root = tk.Tk()
         root.title('SoundTouch · Áudio do PC')
-        if (ROOT / 'quartos.ico').exists():
-            root.iconbitmap(str(ROOT / 'quartos.ico'))
+        if (ASSETS / 'soundtouch.ico').exists():
+            root.iconbitmap(str(ASSETS / 'soundtouch.ico'))
         root.geometry('540x510')
         root.resizable(False, False)
         root.configure(bg='#101820')
@@ -612,7 +618,7 @@ class Bridge:
         draw.rounded_rectangle((16, 8, 48, 56), radius=7, fill='#39d5ac')
         draw.ellipse((24, 28, 40, 44), fill='#163e50')
         draw.ellipse((28, 16, 36, 24), fill='#163e50')
-        icon_image.save(ROOT / 'quartos.ico', sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
+        icon_image.save(ASSETS / 'soundtouch.ico', sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
 
         def action(fn):
             def run(icon, item):

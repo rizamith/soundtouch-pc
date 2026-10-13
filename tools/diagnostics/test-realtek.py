@@ -2,9 +2,8 @@
 import array
 import json
 import math
-from pathlib import Path
-import threading
 import pyaudiowpatch as pa
+from paths import REPORTS
 
 samples = []
 def capture(data, count, timing, flags):
@@ -35,5 +34,5 @@ with pa.PyAudio() as audio:
 report = {'output': output['name'], 'sample_rate': rate,
           'loopback_peak': max(samples, default=0), 'callbacks': len(samples),
           'audio_reached_realtek': max(samples, default=0) > 0}
-Path(__file__).with_name('realtek-test.json').write_text(json.dumps(report, indent=2), 'utf-8')
+(REPORTS / 'realtek-test.json').write_text(json.dumps(report, indent=2), 'utf-8')
 print(json.dumps(report, indent=2))

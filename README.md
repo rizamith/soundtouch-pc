@@ -13,6 +13,29 @@ not been verified; this is not currently a universal DLNA speaker picker.
 The desktop interface is in Portuguese. Room names and button labels below
 match that interface.
 
+## Project layout
+
+```text
+soundtouch-pc/
+├── app/                  # Desktop panel and audio bridge
+├── scripts/              # Installation, firewall, shortcuts, device naming
+├── tools/diagnostics/    # Optional playback tests and Realtek repair
+├── data/                 # Local configuration, logs, reports, assets, backups
+├── vendor/               # Local third-party installer, excluded from Git
+├── .venv/                # Local Python environment, excluded from Git
+├── config.example.json   # Configuration template
+├── requirements.txt      # Pinned dependencies
+├── setup.ps1             # Prepare the environment and configuration
+└── run.ps1               # Start the application
+```
+
+`data/` is excluded from Git. Old investigation files are retained locally in
+`data/archive/`; the application does not use that archive. Driver backups
+are kept separately in `data/backups/`.
+
+Run `powershell -NoProfile -ExecutionPolicy Bypass -File .\run.ps1 -Panel`
+to open the application. Run it without `-Panel` to start in the system tray.
+
 ## Features
 
 - Play audio from VLC, browsers, and other Windows applications on a Bose speaker.
@@ -57,7 +80,7 @@ speaker into a native Windows playback device.
    ```
 
    This installs pinned dependencies into `.venv` and queries the speakers to
-   generate `config.json` with their actual IDs. An existing configuration
+   generate `data/config.json` with their actual IDs. An existing configuration
    is preserved. Use `-PythonCommand` to specify another Python executable.
 
 4. Download the Windows VB-CABLE package from its
@@ -68,7 +91,7 @@ speaker into a native Windows playback device.
 5. Open PowerShell as administrator and run:
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\admin-setup.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
    ```
 
    This adds the firewall rule and opens the official VB-CABLE installer when
@@ -78,8 +101,8 @@ speaker into a native Windows playback device.
 6. Start the panel and create the desktop and Startup shortcuts:
 
    ```powershell
-   .\.venv\Scripts\pythonw.exe .\bridge.py --panel
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\install-shortcuts.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\run.ps1 -Panel
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-shortcuts.ps1
    ```
 
    The **SoundTouch** shortcut starts the application. It also launches
@@ -88,6 +111,14 @@ speaker into a native Windows playback device.
 If VB-CABLE was already the default output during setup, first select your
 local speakers in Windows, then select Quartos or Sala in the panel. This
 lets the bridge remember the local output to restore when you choose the PC.
+
+### Updating an existing installation
+
+Quit the tray application before pulling this folder reorganization. Run
+`setup.ps1` to migrate a legacy root-level configuration into `data/config.json`,
+then run `scripts\install-shortcuts.ps1` to update the desktop and Startup
+entry points. Restart with `run.ps1 -Panel`. The application also migrates
+the old configuration automatically when needed.
 
 ## Everyday use
 
@@ -116,7 +147,7 @@ to quit; the application attempts to restore the local PC output.
 
 ## Configuration and backups
 
-`config.json` contains the selected room, speaker addresses and IDs, HTTP
+`data/config.json` contains the selected room, speaker addresses and IDs, HTTP
 port, and previous local Windows output. It is generated locally and ignored
 by Git. Keep a separate copy to restore this PC's exact configuration.
 
@@ -127,8 +158,8 @@ are accepted only from localhost.
 
 SSDP attempts to rediscover the selected speaker if its IP changes, but the
 firewall must still allow its current address. DHCP reservations are recommended.
-Run `add-sala-firewall.ps1` as administrator to refresh the existing firewall
-address filter from `config.json`.
+Run `scripts\update-firewall.ps1` as administrator to refresh the existing firewall
+address filter from `data/config.json`.
 
 Python environments, installers, driver backups, logs, generated icons, test
 results, and local configuration are excluded from Git.
@@ -151,17 +182,17 @@ the audio stream to disk.
 ## Diagnostics and verification
 
 Status is available at `http://127.0.0.1:18788/status` while the bridge runs.
-The rotating `bridge.log` records connections, capture failures, and volume updates.
+The rotating `data/logs/bridge.log` records connections, capture failures, and volume updates.
 
 | Tool | Purpose |
 | --- | --- |
-| `python -m py_compile bridge.py` | Check Python syntax without playing audio. |
-| `check-speaker-switch.py` | Test streaming and volume synchronization in both rooms. Quit the tray app first to free the HTTP port. This temporarily changes both speakers' sources. |
-| `generate-test-tone.py`, then `check-audio.py` | Generate a quiet tone and verify capture and delivery through the running bridge. |
-| `inspect-outputs.py` | Inspect playback devices, volume, mute, and audio sessions. |
-| `test-realtek.py` | Play tones directly through Realtek, independently of the bridge. |
-| `restart-realtek.ps1` | ASUS PB60 repair helper: back up the matching Realtek driver and restart that device. Requires administrator privileges. |
-| `realtek-effects.py` | Inspect Realtek effects. Optional `--disable` and `--restore` switches modify or restore effects using a local backup. |
+| `tools/diagnostics/verify-layout.py` | Validate application paths and configuration without changing speaker playback. |
+| `python -m py_compile app/bridge.py` | Check Python syntax without playing audio. |
+| `tools/diagnostics/check-speaker-switch.py` | Test streaming and volume synchronization in both rooms. Quit the tray app first to free the HTTP port. This temporarily changes both speakers' sources. |
+| `tools/diagnostics/generate-test-tone.py`, then `tools/diagnostics/check-audio.py` | Generate a quiet tone and verify capture and delivery through the running bridge. |
+| `tools/diagnostics/inspect-outputs.py` | Inspect playback devices, volume, mute, and audio sessions. |
+| `tools/diagnostics/test-realtek.py` | Play tones directly through Realtek, independently of the bridge. |
+| `tools/diagnostics/restart-realtek.ps1` | ASUS PB60 repair helper: back up the matching Realtek driver and restart that device. Requires administrator privileges. |
 
 Run Python diagnostics using `.\.venv\Scripts\python.exe`. Audio tests can
 produce audible tones. Realtek repair helpers are optional and are not part
@@ -176,7 +207,7 @@ administrator PowerShell window. Remove VB-CABLE with its official installer
 and restart Windows as instructed by the manufacturer.
 
 To move the project, quit it before moving the folder, recreate `.venv` with
-`setup.ps1` if necessary, and rerun `install-shortcuts.ps1` from the new location.
+`setup.ps1` if necessary, and rerun `scripts\install-shortcuts.ps1` from the new location.
 Existing shortcuts and Python launchers can contain absolute paths.
 
 ## Support development

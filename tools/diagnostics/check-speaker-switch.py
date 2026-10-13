@@ -1,8 +1,8 @@
 """Integration check: switch the running bridge between the two known Bose units."""
 import json
-from pathlib import Path
 import time
 import xml.etree.ElementTree as ET
+from paths import REPORTS
 from bridge import Bridge, request
 
 bridge = Bridge()
@@ -32,4 +32,4 @@ finally:
         bridge.select_speaker(initial)
         time.sleep(2)
     bridge.shutdown()
-    Path(__file__).with_name('speaker-switch-test.json').write_text(json.dumps(results, indent=2), 'utf-8')
+    (REPORTS / 'speaker-switch-test.json').write_text(json.dumps(results, indent=2), 'utf-8')

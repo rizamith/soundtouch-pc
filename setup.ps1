@@ -8,7 +8,13 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 }
 & $venvPython -m pip install -r (Join-Path $taskRoot 'requirements.txt')
 if ($LASTEXITCODE -ne 0) { throw 'Falha na instalação das dependências.' }
-$configurationPath = Join-Path $taskRoot 'config.json'
+$dataRoot = Join-Path $taskRoot 'data'
+New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
+$configurationPath = Join-Path $dataRoot 'config.json'
+$legacyConfiguration = Join-Path $taskRoot 'config.json'
+if (-not (Test-Path -LiteralPath $configurationPath) -and (Test-Path -LiteralPath $legacyConfiguration)) {
+    Move-Item -LiteralPath $legacyConfiguration -Destination $configurationPath
+}
 if (-not (Test-Path -LiteralPath $configurationPath)) {
     $cfg = Get-Content -LiteralPath (Join-Path $taskRoot 'config.example.json') -Raw | ConvertFrom-Json
     foreach ($speakerName in @('Quartos', 'Sala')) {
@@ -25,4 +31,4 @@ if (-not (Test-Path -LiteralPath $configurationPath)) {
     $jsonText = $cfg | ConvertTo-Json -Depth 5
     [System.IO.File]::WriteAllText($configurationPath, $jsonText, (New-Object System.Text.UTF8Encoding($false)))
 }
-Write-Output 'Dependências e configuração prontas. Consulte README.md para instalar o VB-CABLE e configurar a firewall.'
+Write-Output 'Dependencies and configuration ready. See README.md to install VB-CABLE and configure the firewall.'

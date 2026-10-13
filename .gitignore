@@ -4,7 +4,8 @@ __pycache__/
 *.py[cod]
 .publish/
 vendor/
-diagnostics/
+/diagnostics/
+data/
 config.json
 config.tmp
 *.log
@@ -16,5 +17,6 @@ sala-firewall.json
 test-tone.wav
 panel-preview.png
 quartos.ico
+*.ico
 .DS_Store
 Thumbs.db

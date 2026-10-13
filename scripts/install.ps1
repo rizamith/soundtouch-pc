@@ -1,9 +1,10 @@
 $ErrorActionPreference = 'Stop'
-$taskRoot = $PSScriptRoot
-$result = Join-Path $taskRoot 'admin-result.json'
+$taskRoot = Split-Path -Parent $PSScriptRoot
+New-Item -ItemType Directory -Path (Join-Path $taskRoot 'data\reports') -Force | Out-Null
+$result = Join-Path $taskRoot 'data\reports\install.json'
 try {
     $ruleName = 'SoundTouch Quartos - audio local'
-    $cfg = Get-Content -LiteralPath (Join-Path $taskRoot 'config.json') -Raw | ConvertFrom-Json
+    $cfg = Get-Content -LiteralPath (Join-Path $taskRoot 'data\config.json') -Raw | ConvertFrom-Json
     $addresses = @($cfg.speakers.Quartos.ip, $cfg.speakers.Sala.ip)
     if ($addresses | Where-Object { [string]::IsNullOrWhiteSpace($_) }) { throw 'Configure os endereços das colunas primeiro.' }
     if (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) {
@@ -20,7 +21,7 @@ try {
         # This is an interactive driver installer; its window must be visible.
         Start-Process -FilePath $installer -Wait
     }
-    & (Join-Path $taskRoot '.venv\Scripts\python.exe') (Join-Path $taskRoot 'name-output.py')
+    & (Join-Path $taskRoot '.venv\Scripts\python.exe') (Join-Path $PSScriptRoot 'name-output.py')
     $renamed = $LASTEXITCODE -eq 0
     @{ firewall = 'ok'; driver = $(if ($renamed) {'installed'} else {'reboot-or-install-required'}); renamed = $renamed } | ConvertTo-Json | Set-Content -LiteralPath $result -Encoding UTF8
 } catch {
