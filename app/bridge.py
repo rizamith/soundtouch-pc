@@ -236,9 +236,17 @@ class Bridge:
         comtypes.CoInitialize()
         while not self.stop.is_set():
             try:
-                endpoint_id = AudioUtilities.GetSpeakers().id
+                endpoint = AudioUtilities.GetSpeakers()
+                if not self.enabled or not endpoint.FriendlyName.startswith('SoundTouch'):
+                    self.capture_name = 'PC streaming paused'
+                    self.level = 0
+                    self.stop.wait(0.25)
+                    continue
+                endpoint_id = endpoint.id
                 with pa.PyAudio() as audio:
                     dev = audio.get_default_wasapi_loopback()
+                    if not dev['name'].startswith('SoundTouch'):
+                        continue
                     self.capture_name = dev['name']
                     rate, channels = int(dev['defaultSampleRate']), dev['maxInputChannels']
                     if channels not in (1, 2):
@@ -272,7 +280,7 @@ class Bridge:
                                     input_device_index=dev['index'], frames_per_buffer=frames,
                                     stream_callback=callback) as stream:
                         check = time.monotonic() + 1
-                        while not self.stop.is_set() and stream.is_active():
+                        while not self.stop.is_set() and self.enabled and stream.is_active():
                             try:
                                 # Follow the audio device clock. Polling a second clock and
                                 # inserting silence on every empty poll caused gaps and drift.

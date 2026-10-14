@@ -205,6 +205,9 @@ results, and local configuration are excluded from Git.
 
 The bridge captures playback audio, not the microphone, and does not save
 the audio stream to disk.
+Capture is opened only on the SoundTouch virtual output while PC streaming
+is enabled. Choosing **This PC** or pausing the bridge closes capture instead
+of keeping the physical Realtek playback device open.
 
 ## Diagnostics and verification
 

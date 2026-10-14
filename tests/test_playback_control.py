@@ -141,6 +141,27 @@ class PlaybackControlTests(unittest.TestCase):
         self.assertEqual(self.bridge.cfg['previous_output'], prefix+'realtek')
         self.bridge.pause.assert_called_once()
 
+    def test_local_pc_playback_never_opens_a_capture_device(self):
+        from pycaw.pycaw import AudioUtilities
+        self.bridge.enabled = True
+        self.bridge.stop.wait = Mock(side_effect=lambda delay: self.bridge.stop.set())
+        device = SimpleNamespace(id='realtek', FriendlyName='Speakers (Realtek Audio)')
+        with patch.object(AudioUtilities, 'GetSpeakers', return_value=device), \
+             patch.object(module.pa, 'PyAudio') as audio:
+            self.bridge.capture()
+        audio.assert_not_called()
+        self.assertEqual(self.bridge.capture_name, 'PC streaming paused')
+
+    def test_paused_bridge_never_opens_a_capture_device(self):
+        from pycaw.pycaw import AudioUtilities
+        self.bridge.enabled = False
+        self.bridge.stop.wait = Mock(side_effect=lambda delay: self.bridge.stop.set())
+        device = SimpleNamespace(id='cable', FriendlyName='SoundTouch Wi-Fi')
+        with patch.object(AudioUtilities, 'GetSpeakers', return_value=device), \
+             patch.object(module.pa, 'PyAudio') as audio:
+            self.bridge.capture()
+        audio.assert_not_called()
+
     def test_playing_on_speaker_does_not_save_a_virtual_cable_as_the_local_output(self):
         from pycaw.pycaw import AudioUtilities
         prefix = '{0.0.0.00000000}.'
