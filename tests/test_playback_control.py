@@ -81,6 +81,48 @@ class PlaybackControlTests(unittest.TestCase):
                 self.poll(source)
                 self.bridge.connect.assert_not_called()
 
+    def test_power_buttons_toggle_only_when_needed_and_keep_streaming_paused(self):
+        for turn_on in (True, False):
+            with self.subTest(turn_on=turn_on):
+                state = {'source': 'STANDBY' if turn_on else 'UPNP'}
+                keys = []
+                def fake_request(url, body=None, headers=None):
+                    if body is not None:
+                        keys.append(body)
+                        if 'state="press"' in body:
+                            state['source'] = 'UPNP' if turn_on else 'STANDBY'
+                        return '<ok />'
+                    return f'<nowPlaying source="{state["source"]}" />'
+                with patch.object(module, 'request', side_effect=fake_request):
+                    self.bridge.power(turn_on)
+                    self.assertEqual(self.bridge.speaker_powered, turn_on)
+                    self.assertEqual(len(keys), 2)
+                    self.assertIn('state="press"', keys[0])
+                    self.assertIn('state="release"', keys[1])
+                    self.assertIn('sender="Gabbo"', keys[0])
+                    self.bridge.power(turn_on)
+                    self.assertEqual(len(keys), 2, 'Repeated action must not toggle the speaker back')
+                self.assertFalse(self.bridge.enabled)
+                self.assertFalse(self.bridge.reconnect.is_set())
+                self.bridge.connect.assert_not_called()
+
+    def test_state_is_refreshed_even_when_the_bridge_is_paused(self):
+        self.bridge.enabled = False
+        self.poll('STANDBY')
+        self.assertTrue(self.bridge.speaker_available)
+        self.assertFalse(self.bridge.speaker_powered)
+        self.poll('SPOTIFY', 'PLAY_STATE')
+        self.assertTrue(self.bridge.speaker_powered)
+        self.assertEqual(self.bridge.speaker_state, 'A reproduzir')
+        self.bridge.connect.assert_not_called()
+
+    def test_invalid_state_never_triggers_a_power_toggle(self):
+        with patch.object(module, 'request', return_value='<errors />') as request:
+            with self.assertRaises(RuntimeError):
+                self.bridge.power(False)
+            self.assertEqual(request.call_count, 1)
+            self.assertFalse(self.bridge.enabled)
+
 
 if __name__ == '__main__':
     unittest.main()

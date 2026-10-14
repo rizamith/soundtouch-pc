@@ -71,6 +71,11 @@ class Bridge:
         self.icon = None
         self.ui_show = threading.Event()
         self.workers = []
+        self.speaker_available = None
+        self.speaker_powered = None
+        self.speaker_state = 'A verificar…'
+        self.speaker_source = None
+        self.speaker_playback = None
 
     def save(self):
         self.cfg['enabled'] = self.enabled
@@ -104,6 +109,8 @@ class Bridge:
                 self.cfg['speaker_id'] = selected['id']
                 self.cfg['speaker_name'] = name
                 self.pc_volume = self.speaker_volume = None
+                self.speaker_available = self.speaker_powered = None
+                self.speaker_state = 'A verificar…'
                 self.status = f'A ligar a {name}…'
             self.enabled = True
             self.reconnect.set()
@@ -256,19 +263,61 @@ class Bridge:
         except Exception:
             LOG.exception('Descoberta SSDP')
 
+    def refresh_speaker_state(self):
+        np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
+        if np.tag != 'nowPlaying' or not np.get('source'):
+            raise RuntimeError('A coluna não devolveu um estado válido.')
+        if np.get('deviceID') and np.get('deviceID') != self.cfg['speaker_id']:
+            raise RuntimeError('Este endereço pertence a outra coluna.')
+        self.speaker_available = True
+        self.speaker_source = np.get('source')
+        self.speaker_playback = np.findtext('playStatus')
+        self.speaker_powered = self.speaker_source != 'STANDBY'
+        self.speaker_state = ('Desligada (standby)' if not self.speaker_powered else
+                              'A reproduzir' if self.speaker_playback == 'PLAY_STATE' else
+                              'A preparar áudio' if self.speaker_playback == 'BUFFERING_STATE' else
+                              'Em pausa' if self.speaker_playback == 'PAUSE_STATE' else 'Ligada')
+        return np
+
+    def power(self, turn_on):
+        """POWER is a toggle: query fresh state before sending it, and never start PC audio."""
+        with self.control_lock:
+            self.enabled = False
+            self.reconnect.clear()
+            self.save()
+            with self.lock:
+                for client in self.clients:
+                    while not client.empty():
+                        client.get_nowait()
+                    client.put_nowait(None)
+                self.clients.clear()
+            self.refresh_speaker_state()
+            if self.speaker_powered == turn_on:
+                return
+            for state in ('press', 'release'):
+                request(f'http://{self.ip}:8090/key',
+                        f'<key state="{state}" sender="Gabbo">POWER</key>', {'Content-Type': 'text/xml'})
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                self.refresh_speaker_state()
+                if self.speaker_powered == turn_on:
+                    LOG.info('%s power=%s confirmed', self.speaker_name, turn_on)
+                    return
+                self.stop.wait(0.3)
+            raise RuntimeError('A coluna não confirmou a mudança de estado. Tenta novamente.')
+
     def monitor_once(self):
         """Reconnect transport failures, but respect a speaker-side stop or pause."""
         with self.control_lock:
+            np = self.refresh_speaker_state()
             if self.output_active is None:
                 self.status = 'A preparar saída de áudio…'
             elif not self.output_active:
                 self.status = f'{self.speaker_name} disponível — seleciona SoundTouch no Windows'
                 if self.clients:
-                    np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
                     if np.get('source') == 'UPNP':
                         self.soap('Stop', {'InstanceID': 0})
             elif self.enabled:
-                np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
                 with self.lock:
                     listening = bool(self.clients)
                 source = np.get('source')
@@ -309,6 +358,9 @@ class Bridge:
                 self.monitor_once()
                 failures = 0
             except Exception as e:
+                self.speaker_available = False
+                self.speaker_powered = None
+                self.speaker_state = 'Indisponível na rede'
                 failures += 1
                 self.status = f'A aguardar {self.speaker_name}: {e}'
                 LOG.warning('%s', self.status)
@@ -363,7 +415,7 @@ class Bridge:
                                 request(f'http://{self.ip}:8090/volume', f'<volume>{state[0]}</volume>', {'Content-Type': 'text/xml'})
                             if state[1] != actual[1]:
                                 for key_state in ('press', 'release'):
-                                    request(f'http://{self.ip}:8090/key', f'<key state="{key_state}" sender="PC">MUTE</key>', {'Content-Type': 'text/xml'})
+                                    request(f'http://{self.ip}:8090/key', f'<key state="{key_state}" sender="Gabbo">MUTE</key>', {'Content-Type': 'text/xml'})
                             self.speaker_volume = state[0]
                             LOG.info('Volume Windows -> %s: %s, mute=%s', self.speaker_name, *state)
                         else:
@@ -433,6 +485,8 @@ class Bridge:
     def snapshot(self):
         return {'status': self.status, 'enabled': self.enabled, 'speaker_ip': self.ip,
                 'speaker_name': self.speaker_name,
+                'speaker_available': self.speaker_available, 'speaker_powered': self.speaker_powered,
+                'speaker_state': self.speaker_state, 'speaker_source': self.speaker_source,
                 'capture': self.capture_name, 'clients': len(self.clients),
                 'captured_frames': self.captured_frames, 'encoded_bytes': self.encoded_bytes,
                 'served_bytes': self.served_bytes, 'level': round(self.level, 4),
@@ -459,7 +513,7 @@ class Bridge:
                     self.end_headers()
                     self.wfile.write(data)
                     return
-                if self.path != f'/audio/{bridge.token}.mp3' or self.client_address[0] not in (bridge.ip, '127.0.0.1'):
+                if not bridge.enabled or self.path != f'/audio/{bridge.token}.mp3' or self.client_address[0] not in (bridge.ip, '127.0.0.1'):
                     self.send_error(404)
                     return
                 self.connection.settimeout(8)
@@ -512,7 +566,7 @@ class Bridge:
         root.title('SoundTouch · Áudio do PC')
         if (ASSETS / 'soundtouch.ico').exists():
             root.iconbitmap(str(ASSETS / 'soundtouch.ico'))
-        root.geometry('540x510')
+        root.geometry('540x570')
         root.resizable(False, False)
         root.configure(bg='#101820')
         root.withdraw()
@@ -552,6 +606,14 @@ class Bridge:
         right = tk.Button(choices, text='▣  Este PC', font=('Segoe UI', 12, 'bold'), relief='flat', bd=0,
                           padx=10, pady=11, cursor='hand2', command=lambda: work(lambda: self.route(False)))
         right.pack(side='left', fill='x', expand=True)
+        power_controls = tk.Frame(root, bg=bg)
+        power_controls.pack(fill='x', padx=30, pady=(13, 0))
+        on_button = tk.Button(power_controls, text='Ligar coluna', command=lambda: work(lambda: self.power(True)),
+                              font=('Segoe UI', 10), relief='flat', bg=card, fg=fg, padx=12, pady=8, cursor='hand2')
+        on_button.pack(side='left', fill='x', expand=True, padx=(0, 6))
+        off_button = tk.Button(power_controls, text='Desligar coluna', command=lambda: work(lambda: self.power(False)),
+                               font=('Segoe UI', 10), relief='flat', bg=card, fg=fg, padx=12, pady=8, cursor='hand2')
+        off_button.pack(side='left', fill='x', expand=True, padx=(6, 0))
         volume_header = tk.Frame(root, bg=bg)
         volume_header.pack(fill='x', padx=30, pady=(22, 0))
         volume_title = tk.Label(volume_header, text='Volume da coluna', font=('Segoe UI', 11), fg=fg, bg=bg)
@@ -589,7 +651,7 @@ class Bridge:
         footer.pack(fill='x', padx=30, pady=(20, 0))
         tk.Button(footer, text='Usar Spotify', command=lambda: work(self.pause), bg=card, fg=fg,
                   font=('Segoe UI', 10), relief='flat', padx=13, pady=7, cursor='hand2').pack(side='left')
-        tk.Button(footer, text='Restabelecer ligação', command=lambda: work(self.enable), bg=bg, fg=dim,
+        tk.Button(footer, text='Ouvir áudio do PC', command=lambda: work(lambda: self.route(True)), bg=bg, fg=dim,
                   font=('Segoe UI', 10), relief='flat', padx=10, pady=7, cursor='hand2').pack(side='right')
         tk.Label(root, textvariable=message, font=('Segoe UI', 9), fg='#f8b98a', bg=bg,
                  wraplength=480).pack(anchor='w', padx=30, pady=5)
@@ -605,11 +667,12 @@ class Bridge:
             if not errors.empty():
                 message.set(errors.get_nowait())
             active = self.output_active and self.enabled
-            status_label.configure(text=(f'●  {self.speaker_name} · ligado' if active and self.clients else
-                                         f'●  {self.speaker_name} · em pausa' if not self.enabled and self.output_active else
-                                         '●  A ouvir neste PC' if self.output_active is False else f'●  A ligar a {self.speaker_name}…'),
-                                   fg=accent if active and self.clients else dim)
-            info_label.configure(text=f'Bose {self.cfg["speakers"][self.speaker_name]["model"]} · Wi-Fi')
+            status_label.configure(text=f'●  {self.speaker_name} · {self.speaker_state}',
+                                   fg=accent if self.speaker_powered else dim)
+            audio_hint = 'Áudio do PC ativo' if active and self.clients else 'Transmissão do PC em pausa'
+            info_label.configure(text=f'Bose {self.cfg["speakers"][self.speaker_name]["model"]} · {audio_hint}')
+            on_button.configure(state='normal' if self.speaker_available and self.speaker_powered is False else 'disabled')
+            off_button.configure(state='normal' if self.speaker_available and self.speaker_powered is True else 'disabled')
             volume_title.configure(text=f'Volume · {self.speaker_name}')
             quart_active = active and self.speaker_name == 'Quartos'
             sala_active = active and self.speaker_name == 'Sala'

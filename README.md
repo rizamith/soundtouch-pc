@@ -130,8 +130,16 @@ Double-click the green system-tray icon to open the panel.
 | **Sala** | Stop the previous speaker stream and play PC audio in Sala. |
 | **Este PC** | Restore the previous local Windows output and pause streaming. |
 | Volume slider | Adjust the selected speaker's volume; Windows volume keys work too. |
+| **Ligar coluna** | Wake the selected speaker without starting PC audio. |
+| **Desligar coluna** | Put the selected speaker in standby and pause the PC bridge. |
 | **Usar Spotify** | Pause streaming and release the speaker for another source. |
-| **Restabelecer ligação** | Reconnect the selected speaker to the PC stream. |
+| **Ouvir áudio do PC** | Select the virtual Windows output and start streaming to the selected speaker. |
+
+The status card reports the physical speaker's state even when streaming is
+paused: on, playing, buffering, paused, standby, or unavailable on the network.
+Power controls use a fresh state query because Bose's POWER command is a toggle;
+repeating an already satisfied request does not send another toggle. Turning
+off means standby, not disconnecting electrical power.
 
 Selecting **SoundTouch Wi-Fi** in the Windows output selector activates the
 bridge for the last selected room. The bridge does not force playback back
@@ -140,7 +148,7 @@ to the PC if you subsequently select Spotify on the speaker.
 Switching the speaker off, pausing it, or stopping playback from the SoundTouch
 mobile app or its physical controls also pauses this bridge. That choice is
 saved across application restarts. To resume PC audio, select the room again
-or click **Restabelecer ligação**. Automatic transport recovery only resumes
+or click **Ouvir áudio do PC**. Automatic transport recovery only resumes
 a disconnected stream when the speaker still reports playback or buffering;
 it does not wake a speaker that reports standby.
 
