@@ -7,7 +7,7 @@ assert CONFIG == ROOT / 'data' / 'config.json'
 assert CONFIG.is_file(), 'Run setup.ps1 to configure the application.'
 config = json.loads(CONFIG.read_text('utf-8'))
 assert config['speaker_name'] in config['speakers']
-assert all(config['speakers'][name]['id'] for name in ('Quartos', 'Sala'))
+assert config['speakers'] and all(speaker['id'] for speaker in config['speakers'].values())
 for relative in ('app/bridge.py', 'run.ps1', 'setup.ps1', 'scripts/install.ps1',
                  'scripts/install-shortcuts.ps1', 'scripts/name-output.py', 'scripts/update-firewall.ps1'):
     assert (ROOT / relative).is_file(), f'Missing file: {relative}'

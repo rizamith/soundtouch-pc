@@ -26,6 +26,7 @@ class PlaybackControlTests(unittest.TestCase):
         self.bridge.reconnect.clear()
         self.bridge.connect = Mock()
         self.bridge.soap = Mock()
+        self.bridge.allow_speaker = Mock()
 
     def poll(self, source, state=None):
         status = f'<playStatus>{state}</playStatus>' if state else ''
@@ -113,7 +114,7 @@ class PlaybackControlTests(unittest.TestCase):
         self.assertFalse(self.bridge.speaker_powered)
         self.poll('SPOTIFY', 'PLAY_STATE')
         self.assertTrue(self.bridge.speaker_powered)
-        self.assertEqual(self.bridge.speaker_state, 'A reproduzir')
+        self.assertEqual(self.bridge.speaker_state, 'Playing')
         self.bridge.connect.assert_not_called()
 
     def test_invalid_state_never_triggers_a_power_toggle(self):

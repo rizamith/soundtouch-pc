@@ -5,7 +5,7 @@ $result = Join-Path $taskRoot 'data\reports\install.json'
 try {
     $ruleName = 'SoundTouch Quartos - audio local'
     $cfg = Get-Content -LiteralPath (Join-Path $taskRoot 'data\config.json') -Raw | ConvertFrom-Json
-    $addresses = @($cfg.speakers.Quartos.ip, $cfg.speakers.Sala.ip)
+    $addresses = @($cfg.speakers.PSObject.Properties | ForEach-Object { $_.Value.ip } | Sort-Object -Unique)
     if ($addresses | Where-Object { [string]::IsNullOrWhiteSpace($_) }) { throw 'Configure os endereços das colunas primeiro.' }
     if (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $cfg.port -RemoteAddress $addresses -Profile Any | Out-Null

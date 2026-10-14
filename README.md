@@ -7,11 +7,11 @@ MP3 at 320 kbps, and serves a live HTTP stream to the selected speaker using
 its UPnP renderer. Audio streaming and speaker control use local network
 interfaces and do not require the Bose cloud service.
 
-The current interface supports **Quartos** (a SoundTouch SA-5), **Sala** (a Bose
-Cinemate with SoundTouch), and the PC's local audio output. Other models have
-not been verified; this is not currently a universal DLNA speaker picker.
-The desktop interface is in Portuguese. Room names and button labels below
-match that interface.
+The English desktop interface discovers Bose SoundTouch speakers on the local
+network and lets you choose them from a saved list. Quartos (a SoundTouch SA-5)
+and Sala (a Bose Cinemate with SoundTouch) were verified on real hardware.
+Other SoundTouch models can be discovered but have not been playback-tested.
+Generic DLNA renderers without the SoundTouch control API are not supported.
 
 ## Project layout
 
@@ -39,7 +39,7 @@ to open the application. Run it without `-Panel` to start in the system tray.
 ## Features
 
 - Play audio from VLC, browsers, and other Windows applications on a Bose speaker.
-- Choose Quartos, Sala, or the PC's local output from a desktop panel.
+- Scan the network, choose a SoundTouch speaker, or use the PC's local output.
 - Control speaker volume and mute with the Windows slider and keyboard keys.
 - Reflect changes made on the speaker back in the Windows volume slider.
 - Preserve each speaker's volume when switching rooms.
@@ -51,7 +51,7 @@ to open the application. Run it without `-Panel` to start in the system tray.
 
 - Windows 10 or 11, 64-bit.
 - Python 3.14, 64-bit, available as `python` in PowerShell.
-- Both configured SoundTouch speakers accessible on the PC's local network.
+- At least one configured SoundTouch speaker accessible on the PC's local network.
 - [VB-CABLE for Windows](https://vb-audio.com/Cable/), installed separately.
 - Administrator privileges for driver installation and firewall configuration.
 
@@ -71,7 +71,8 @@ speaker into a native Windows playback device.
 
 2. Adjust the IP addresses in `config.example.json` if necessary. The example
    uses `192.168.1.88` for Quartos and `192.168.1.90` for Sala. The speaker
-   names must match those rooms.
+   names must match the configured rooms. You can add or remove room entries;
+   the panel is not restricted to Quartos and Sala.
 
 3. Create the Python environment and local configuration:
 
@@ -126,14 +127,15 @@ Double-click the green system-tray icon to open the panel.
 
 | Panel control | Behavior |
 | --- | --- |
-| **Quartos** | Stop the previous speaker stream and play PC audio in Quartos. |
-| **Sala** | Stop the previous speaker stream and play PC audio in Sala. |
-| **Este PC** | Restore the previous local Windows output and pause streaming. |
+| Speaker list | Select a speaker to inspect or control it without starting playback. |
+| **Scan network** | Discover and save Bose SoundTouch speakers without waking them. |
+| **Play on speaker** | Select the virtual Windows output and stream to the chosen speaker. |
+| **This PC** | Restore the previous local Windows output and pause streaming. |
 | Volume slider | Adjust the selected speaker's volume; Windows volume keys work too. |
-| **Ligar coluna** | Wake the selected speaker without starting PC audio. |
-| **Desligar coluna** | Put the selected speaker in standby and pause the PC bridge. |
-| **Usar Spotify** | Pause streaming and release the speaker for another source. |
-| **Ouvir áudio do PC** | Select the virtual Windows output and start streaming to the selected speaker. |
+| **Power on** | Wake the selected speaker without starting PC audio. |
+| **Power off** | Put the selected speaker in standby and pause the PC bridge. |
+| **Release for Spotify** | Pause streaming and release the speaker for another source. |
+| **Refresh status** | Refresh the current speaker state. |
 
 The status card reports the physical speaker's state even when streaming is
 paused: on, playing, buffering, paused, standby, or unavailable on the network.
@@ -148,7 +150,7 @@ to the PC if you subsequently select Spotify on the speaker.
 Switching the speaker off, pausing it, or stopping playback from the SoundTouch
 mobile app or its physical controls also pauses this bridge. That choice is
 saved across application restarts. To resume PC audio, select the room again
-or click **Ouvir áudio do PC**. Automatic transport recovery only resumes
+or click **Play on speaker**. Automatic transport recovery only resumes
 a disconnected stream when the speaker still reports playback or buffering;
 it does not wake a speaker that reports standby.
 
@@ -157,7 +159,7 @@ audio. The Windows master slider is synchronized with the selected speaker.
 On connection, the bridge adopts the speaker's current volume to avoid a jump
 to a stale virtual-device setting.
 
-Closing the panel leaves the bridge running. Choose **Sair** in the tray menu
+Closing the panel leaves the bridge running. Choose **Quit** in the tray menu
 to quit; the application attempts to restore the local PC output.
 
 ## Configuration and backups
@@ -167,7 +169,10 @@ port, and previous local Windows output. It is generated locally and ignored
 by Git. Keep a separate copy to restore this PC's exact configuration.
 
 The default stream port is TCP **18788**. The firewall rule restricts inbound
-traffic to the two configured speaker IP addresses. The stream endpoint also
+traffic to configured speaker IP addresses. When you first play on a newly
+discovered address, Windows may request administrator permission to update
+this rule. Scanning and selecting a speaker do not change the firewall or wake it.
+The stream endpoint also
 checks the requesting IP address and uses a random URL token. Status requests
 are accepted only from localhost.
 
@@ -175,6 +180,15 @@ SSDP attempts to rediscover the selected speaker if its IP changes, but the
 firewall must still allow its current address. DHCP reservations are recommended.
 Run `scripts\update-firewall.ps1` as administrator to refresh the existing firewall
 address filter from `data/config.json`.
+
+### Network discovery
+
+**Scan network** sends SSDP discovery requests on the active local interface
+and verifies devices through the SoundTouch `/info` API. An HTTP fallback
+checks the local IPv4 subnet, capped to the PC's /24 segment on large networks.
+The scan runs in the background and does not send playback or power commands.
+Known speakers remain listed even when offline; duplicate names are distinguished
+by device ID. Discovered addresses and models are saved locally.
 
 Python environments, installers, driver backups, logs, generated icons, test
 results, and local configuration are excluded from Git.
@@ -220,7 +234,7 @@ the PC's internal speaker output without reinstalling its driver.
 
 ## Uninstalling or moving the application
 
-Choose **Este PC**, then **Sair**. Remove the desktop and Startup shortcuts.
+Choose **This PC**, then **Quit**. Remove the desktop and Startup shortcuts.
 Remove the firewall rule named `SoundTouch Quartos - audio local` using an
 administrator PowerShell window. Remove VB-CABLE with its official installer
 and restart Windows as instructed by the manufacturer.

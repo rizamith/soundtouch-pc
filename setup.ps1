@@ -17,15 +17,20 @@ if (-not (Test-Path -LiteralPath $configurationPath) -and (Test-Path -LiteralPat
 }
 if (-not (Test-Path -LiteralPath $configurationPath)) {
     $cfg = Get-Content -LiteralPath (Join-Path $taskRoot 'config.example.json') -Raw | ConvertFrom-Json
-    foreach ($speakerName in @('Quartos', 'Sala')) {
-        $speaker = $cfg.speakers.$speakerName
+    if (-not $cfg.speakers.PSObject.Properties.Count) { throw 'Configure at least one speaker in config.example.json.' }
+    foreach ($entry in $cfg.speakers.PSObject.Properties) {
+        $speakerName = $entry.Name
+        $speaker = $entry.Value
         $info = [xml](Invoke-WebRequest ('http://' + $speaker.ip + ':8090/info') -UseBasicParsing -TimeoutSec 5).Content
         if ($info.info.name -ne $speakerName) { throw "A coluna em $($speaker.ip) chama-se $($info.info.name); atualize config.example.json." }
         $speaker.id = [string]$info.info.deviceID
         $speaker.model = [string]$info.info.type
     }
-    $cfg.speaker_id = $cfg.speakers.Quartos.id
-    $cfg.speaker_ip = $cfg.speakers.Quartos.ip
+    if (-not $cfg.speakers.PSObject.Properties[$cfg.speaker_name]) {
+        $cfg.speaker_name = ($cfg.speakers.PSObject.Properties | Select-Object -First 1).Name
+    }
+    $cfg.speaker_id = $cfg.speakers.($cfg.speaker_name).id
+    $cfg.speaker_ip = $cfg.speakers.($cfg.speaker_name).ip
     $previousOutput = & $venvPython -c "from pycaw.pycaw import AudioUtilities; d=AudioUtilities.GetSpeakers(); print(d.id if 'VB-Audio Virtual Cable' not in d.FriendlyName else '')"
     if ($previousOutput) { $cfg | Add-Member -NotePropertyName previous_output -NotePropertyValue $previousOutput.Trim() }
     $jsonText = $cfg | ConvertTo-Json -Depth 5
