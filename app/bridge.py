@@ -79,6 +79,7 @@ class Bridge:
         self.speaker_playback = None
         self.scanning = False
         self.scan_status = ''
+        self.local_output_name = ''
         self.allowed_speaker_ips = set(self.cfg.get('firewall_ips', [s['ip'] for s in self.cfg.get('speakers', {}).values()]))
         self.cfg['firewall_ips'] = sorted(self.allowed_speaker_ips)
 
@@ -457,6 +458,8 @@ class Bridge:
                     endpoint = device.EndpointVolume
                     was_active = self.output_active
                     self.output_active = device.FriendlyName.startswith('SoundTouch')
+                    if not self.output_active:
+                        self.local_output_name = device.FriendlyName
                     previous = None
                     if self.output_active and was_active is False:
                         self.enable()
@@ -533,15 +536,26 @@ class Bridge:
             if to_speaker:
                 if not cable:
                     raise RuntimeError('Install VB-CABLE and restart Windows to enable the SoundTouch output.')
-                if current != cable.id:
+                current_device = next((d for d in devices if d.id == current), None)
+                if current != cable.id and current_device and 'VB-Audio Virtual Cable' not in current_device.FriendlyName:
                     self.cfg['previous_output'] = current
                     self.save()
                 target = cable.id
             else:
                 target = self.cfg.get('previous_output')
-                if not target or not any(d.id == target and d.state.value == 1 for d in devices):
+                local = next((d for d in devices if d.id == target and d.state.value == 1
+                              and 'VB-Audio Virtual Cable' not in d.FriendlyName), None)
+                if not local:
+                    local = next((d for d in devices if d.id.startswith('{0.0.0.') and d.state.value == 1
+                                  and 'Realtek' in d.FriendlyName), None)
+                if not local:
                     raise RuntimeError('The previous output is unavailable. Choose a local output in Windows sound settings.')
+                target = local.id
+                self.cfg['previous_output'] = target
+                self.local_output_name = local.FriendlyName
             AudioUtilities.SetDefaultDevice(target, [ERole.eConsole, ERole.eMultimedia])
+            if AudioUtilities.GetSpeakers().id != target:
+                raise RuntimeError('Windows did not switch the playback output. Please try again.')
             if to_speaker:
                 self.enable()
             else:
@@ -674,7 +688,7 @@ class Bridge:
         picker = ttk.Combobox(choices, textvariable=selection, state='readonly', style='Speaker.TCombobox',
                               font=('Segoe UI', 12), values=sorted(self.cfg['speakers']))
         picker.pack(side='left', fill='x', expand=True, padx=(0, 8))
-        picker.bind('<<ComboboxSelected>>', lambda event: work(lambda: self.select_speaker(selection.get(), play=False)))
+        picker.bind('<<ComboboxSelected>>', lambda event: work(lambda: self.select_speaker(selection.get())))
         scan_button = tk.Button(choices, text='Scan network', font=('Segoe UI', 10), relief='flat',
                                 bg=card, fg=fg, padx=10, pady=10, cursor='hand2', command=lambda: work(self.scan_network))
         scan_button.pack(side='right')
@@ -682,20 +696,15 @@ class Bridge:
         scan_label.pack(anchor='w', padx=30, pady=(5, 0))
         destinations = tk.Frame(root, bg=bg)
         destinations.pack(fill='x', padx=30, pady=(10, 0))
-        left = tk.Button(destinations, text='Play on speaker', font=('Segoe UI', 12, 'bold'), relief='flat', bd=0,
-                         padx=10, pady=11, cursor='hand2', command=lambda: work(lambda: self.select_speaker(selection.get())))
-        left.pack(side='left', fill='x', expand=True, padx=(0, 6))
         right = tk.Button(destinations, text='This PC', font=('Segoe UI', 12, 'bold'), relief='flat', bd=0,
                           padx=10, pady=11, cursor='hand2', command=lambda: work(lambda: self.route(False)))
         right.pack(side='left', fill='x', expand=True)
         power_controls = tk.Frame(root, bg=bg)
         power_controls.pack(fill='x', padx=30, pady=(13, 0))
-        on_button = tk.Button(power_controls, text='Power on', command=lambda: work(lambda: self.power(True)),
-                              font=('Segoe UI', 10), relief='flat', bg=card, fg=fg, padx=12, pady=8, cursor='hand2')
-        on_button.pack(side='left', fill='x', expand=True, padx=(0, 6))
-        off_button = tk.Button(power_controls, text='Power off', command=lambda: work(lambda: self.power(False)),
-                               font=('Segoe UI', 10), relief='flat', bg=card, fg=fg, padx=12, pady=8, cursor='hand2')
-        off_button.pack(side='left', fill='x', expand=True, padx=(6, 0))
+        off_button = tk.Button(power_controls, text='Shutdown', command=lambda: work(lambda: self.power(False)),
+                               font=('Segoe UI', 11, 'bold'), relief='flat', bg='#a63a43', fg=fg,
+                               activebackground='#c64b55', activeforeground=fg, padx=12, pady=10, cursor='hand2')
+        off_button.pack(fill='x')
         volume_header = tk.Frame(root, bg=bg)
         volume_header.pack(fill='x', padx=30, pady=(22, 0))
         volume_title = tk.Label(volume_header, text='Speaker volume', font=('Segoe UI', 11), fg=fg, bg=bg)
@@ -751,10 +760,12 @@ class Bridge:
             active = self.output_active and self.enabled
             status_label.configure(text=f'●  {self.speaker_name} · {self.speaker_state}',
                                    fg=accent if self.speaker_powered else dim)
-            audio_hint = 'PC audio active' if active and self.clients else 'PC streaming paused'
+            audio_hint = ('Local PC output active' if self.output_active is False else
+                          'PC audio active' if active and self.clients else 'PC streaming paused')
             info_label.configure(text=f'Bose {self.cfg["speakers"][self.speaker_name]["model"]} · {audio_hint}')
-            on_button.configure(state='normal' if self.speaker_available and self.speaker_powered is False else 'disabled')
-            off_button.configure(state='normal' if self.speaker_available and self.speaker_powered is True else 'disabled')
+            can_shutdown = self.speaker_available and self.speaker_powered is True
+            off_button.configure(state='normal' if can_shutdown else 'disabled',
+                                 bg='#a63a43' if can_shutdown else '#42282a')
             volume_title.configure(text=f'Volume · {self.speaker_name}')
             names = tuple(sorted(self.cfg['speakers'].copy()))
             if tuple(picker.cget('values')) != names:
@@ -764,8 +775,6 @@ class Bridge:
             scan_button.configure(state='disabled' if self.scanning else 'normal',
                                   text='Scanning…' if self.scanning else 'Scan network')
             scan_label.configure(text=self.scan_status)
-            left.configure(bg=accent if active else card, fg=bg if active else fg,
-                           activebackground=accent, activeforeground=bg)
             right.configure(bg=accent if not self.output_active else card, fg=bg if not self.output_active else fg,
                             activebackground=accent, activeforeground=bg)
             slider.configure(state='normal' if active and self.clients else 'disabled')

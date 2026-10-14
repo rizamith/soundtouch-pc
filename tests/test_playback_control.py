@@ -5,6 +5,7 @@ import queue
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
@@ -123,6 +124,35 @@ class PlaybackControlTests(unittest.TestCase):
                 self.bridge.power(False)
             self.assertEqual(request.call_count, 1)
             self.assertFalse(self.bridge.enabled)
+
+    def test_this_pc_restores_physical_output_instead_of_another_virtual_cable(self):
+        from pycaw.pycaw import AudioUtilities
+        prefix = '{0.0.0.00000000}.'
+        devices = [SimpleNamespace(id=prefix+'cable', FriendlyName='SoundTouch Wi-Fi (VB-Audio Virtual Cable)', state=SimpleNamespace(value=1)),
+                   SimpleNamespace(id=prefix+'cable16', FriendlyName='CABLE In 16ch (VB-Audio Virtual Cable)', state=SimpleNamespace(value=1)),
+                   SimpleNamespace(id=prefix+'realtek', FriendlyName='Speakers (Realtek Audio)', state=SimpleNamespace(value=1))]
+        self.bridge.cfg['previous_output'] = prefix+'cable16'
+        self.bridge.pause = Mock()
+        with patch.object(AudioUtilities, 'GetAllDevices', return_value=devices), \
+             patch.object(AudioUtilities, 'GetSpeakers', side_effect=[devices[0], devices[2]]), \
+             patch.object(AudioUtilities, 'SetDefaultDevice') as select:
+            self.bridge.route(False)
+        self.assertEqual(select.call_args.args[0], prefix+'realtek')
+        self.assertEqual(self.bridge.cfg['previous_output'], prefix+'realtek')
+        self.bridge.pause.assert_called_once()
+
+    def test_playing_on_speaker_does_not_save_a_virtual_cable_as_the_local_output(self):
+        from pycaw.pycaw import AudioUtilities
+        prefix = '{0.0.0.00000000}.'
+        devices = [SimpleNamespace(id=prefix+'cable', FriendlyName='SoundTouch Wi-Fi (VB-Audio Virtual Cable)', state=SimpleNamespace(value=1)),
+                   SimpleNamespace(id=prefix+'cable16', FriendlyName='CABLE In 16ch (VB-Audio Virtual Cable)', state=SimpleNamespace(value=1))]
+        self.bridge.cfg['previous_output'] = 'realtek'
+        self.bridge.enable = Mock()
+        with patch.object(AudioUtilities, 'GetAllDevices', return_value=devices), \
+             patch.object(AudioUtilities, 'GetSpeakers', side_effect=[devices[1], devices[0]]), \
+             patch.object(AudioUtilities, 'SetDefaultDevice'):
+            self.bridge.route(True)
+        self.assertEqual(self.bridge.cfg['previous_output'], 'realtek')
 
 
 if __name__ == '__main__':

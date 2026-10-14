@@ -127,19 +127,17 @@ Double-click the green system-tray icon to open the panel.
 
 | Panel control | Behavior |
 | --- | --- |
-| Speaker list | Select a speaker to inspect or control it without starting playback. |
+| Speaker list | Select a speaker to wake it and start streaming PC audio. |
 | **Scan network** | Discover and save Bose SoundTouch speakers without waking them. |
-| **Play on speaker** | Select the virtual Windows output and stream to the chosen speaker. |
 | **This PC** | Restore the previous local Windows output and pause streaming. |
 | Volume slider | Adjust the selected speaker's volume; Windows volume keys work too. |
-| **Power on** | Wake the selected speaker without starting PC audio. |
-| **Power off** | Put the selected speaker in standby and pause the PC bridge. |
+| **Shutdown** | Put the selected speaker in standby and pause the PC bridge. |
 | **Release for Spotify** | Pause streaming and release the speaker for another source. |
 | **Refresh status** | Refresh the current speaker state. |
 
 The status card reports the physical speaker's state even when streaming is
 paused: on, playing, buffering, paused, standby, or unavailable on the network.
-Power controls use a fresh state query because Bose's POWER command is a toggle;
+Shutdown uses a fresh state query because Bose's POWER command is a toggle;
 repeating an already satisfied request does not send another toggle. Turning
 off means standby, not disconnecting electrical power.
 
@@ -150,7 +148,7 @@ to the PC if you subsequently select Spotify on the speaker.
 Switching the speaker off, pausing it, or stopping playback from the SoundTouch
 mobile app or its physical controls also pauses this bridge. That choice is
 saved across application restarts. To resume PC audio, select the room again
-or click **Play on speaker**. Automatic transport recovery only resumes
+in the speaker list. Automatic transport recovery only resumes
 a disconnected stream when the speaker still reports playback or buffering;
 it does not wake a speaker that reports standby.
 
@@ -171,7 +169,7 @@ by Git. Keep a separate copy to restore this PC's exact configuration.
 The default stream port is TCP **18788**. The firewall rule restricts inbound
 traffic to configured speaker IP addresses. When you first play on a newly
 discovered address, Windows may request administrator permission to update
-this rule. Scanning and selecting a speaker do not change the firewall or wake it.
+this rule. Scanning alone does not change the firewall or wake speakers.
 The stream endpoint also
 checks the requesting IP address and uses a random URL token. Status requests
 are accepted only from localhost.
