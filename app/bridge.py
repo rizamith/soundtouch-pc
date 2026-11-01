@@ -46,10 +46,10 @@ class Bridge:
     def __init__(self):
         self.cfg = json.loads(CONFIG.read_text('utf-8'))
         self.ip = self.cfg['speaker_ip']
-        self.enabled = self.cfg.get('enabled', True)
+        # Playback permission belongs to this session, not saved configuration.
+        self.enabled = False
         self.stop = threading.Event()
         self.reconnect = threading.Event()
-        self.reconnect.set()
         self.clients = set()
         self.lock = threading.Lock()
         self.status = 'Starting…'
@@ -171,11 +171,8 @@ class Bridge:
                 self.speaker_available = self.speaker_powered = None
                 self.speaker_state = 'Checking…'
                 self.status = f'Connecting to {name}…'
-            self.enabled = play
-            if play:
-                self.reconnect.set()
-            else:
-                self.reconnect.clear()
+            self.enabled = False
+            self.reconnect.clear()
             self.save()
         if play:
             self.route(True)
@@ -381,48 +378,50 @@ class Bridge:
                 self.stop.wait(0.3)
             raise RuntimeError('The speaker did not confirm the state change. Please try again.')
 
+    def deactivate(self):
+        """Caller holds control_lock; release resources without speaker commands."""
+        self.enabled = False
+        self.reconnect.clear()
+        with self.lock:
+            for client in self.clients:
+                while not client.empty():
+                    client.get_nowait()
+                client.put_nowait(None)
+            self.clients.clear()
+        self.save()
+
     def monitor_once(self):
-        """Reconnect transport failures, but respect a speaker-side stop or pause."""
+        """Observe only: polling must never send playback or power commands."""
         with self.control_lock:
-            np = self.refresh_speaker_state()
+            try:
+                np = self.refresh_speaker_state()
+            except Exception:
+                if self.enabled:
+                    self.deactivate()
+                raise
             if self.output_active is None:
                 self.status = 'Preparing audio output…'
             elif not self.output_active:
-                self.status = f'{self.speaker_name} available — select SoundTouch in Windows'
-                if self.clients:
-                    if np.get('source') == 'UPNP':
-                        self.soap('Stop', {'InstanceID': 0})
+                self.status = f'{self.speaker_name} available — select the speaker to play'
+                if self.enabled:
+                    self.deactivate()
             elif self.enabled:
                 with self.lock:
                     listening = bool(self.clients)
                 source = np.get('source')
                 playback = np.findtext('playStatus')
-                force = self.reconnect.is_set()
-                if force:
-                    self.connect()
-                    self.reconnect.clear()
-                    self.status = f'{self.speaker_name} · connected' if self.clients else f'Connecting to {self.speaker_name}…'
-                elif source == 'STANDBY' or (source == 'UPNP' and playback in ('PAUSE_STATE', 'STOP_STATE')):
+                if source != 'UPNP' or playback not in ('PLAY_STATE', 'BUFFERING_STATE'):
                     # A control app or physical button changed playback. Do not undo it,
                     # even if the HTTP client has not closed yet. Persist across restarts.
-                    self.enabled = False
-                    self.reconnect.clear()
-                    self.save()
-                    with self.lock:
-                        for client in self.clients:
-                            while not client.empty():
-                                client.get_nowait()
-                            client.put_nowait(None)
-                        self.clients.clear()
+                    self.deactivate()
                     self.status = f'{self.speaker_name} · paused on speaker'
                     LOG.info('%s stopped externally: source=%s, state=%s', self.speaker_name, source, playback)
                 elif not listening and source == 'UPNP' and playback in ('PLAY_STATE', 'BUFFERING_STATE'):
-                    self.connect()
-                    self.status = f'Connecting to {self.speaker_name}…'
+                    self.status = f'{self.speaker_name} · waiting for stream; select the speaker to retry'
                 elif listening and source == 'UPNP':
                     self.status = f'{self.speaker_name} · connected'
                 else:
-                    self.status = f'{self.speaker_name} is using another source — press Play to resume'
+                    self.status = f'{self.speaker_name} · select the speaker to resume'
             else:
                 self.status = f'{self.speaker_name} · paused'
 
@@ -464,13 +463,10 @@ class Bridge:
                     device = AudioUtilities.CreateDevice(raw)
                     device_id = current_id
                     endpoint = device.EndpointVolume
-                    was_active = self.output_active
                     self.output_active = device.FriendlyName.startswith('SoundTouch')
                     if not self.output_active:
                         self.local_output_name = device.FriendlyName
                     previous = None
-                    if self.output_active and was_active is False:
-                        self.enable()
                 if not (self.output_active and self.enabled and self.clients):
                     previous = None
                     self.stop.wait(0.25)
@@ -483,6 +479,11 @@ class Bridge:
                 if previous is None or state != previous or now - last_poll >= 1:
                     with self.control_lock:
                         if volume_speaker != self.ip or not (self.output_active and self.enabled and self.clients):
+                            previous = None
+                            continue
+                        np = self.refresh_speaker_state()
+                        if np.get('source') != 'UPNP' or np.findtext('playStatus') not in ('PLAY_STATE', 'BUFFERING_STATE'):
+                            self.deactivate()
                             previous = None
                             continue
                         xml = ET.fromstring(request(f'http://{self.ip}:8090/volume'))
@@ -514,19 +515,26 @@ class Bridge:
         comtypes.CoUninitialize()
 
     def enable(self):
+        """One explicit action, one attempt; never queue a later wake."""
         with self.control_lock:
             self.allow_speaker(self.ip)
             self.enabled = True
-            self.reconnect.set()
-            self.save()
+            self.reconnect.clear()
+            try:
+                LOG.info('Explicit playback requested: %s', self.speaker_name)
+                self.connect()
+                self.save()
+            except Exception:
+                self.deactivate()
+                raise
 
     def pause(self):
         with self.control_lock:
-            self.enabled = False
-            self.save()
+            owned_stream = bool(self.clients)
+            self.deactivate()
             try:
                 np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
-                if np.get('source') == 'UPNP' and self.clients:
+                if np.get('source') == 'UPNP' and owned_stream:
                     self.soap('Stop', {'InstanceID': 0})
             except Exception:
                 LOG.exception('Parar UPnP')
@@ -822,10 +830,7 @@ class Bridge:
 
         def quit_app(icon, item):
             try:
-                wanted_enabled = self.enabled
                 self.route(False)
-                self.enabled = wanted_enabled
-                self.save()
             except Exception:
                 LOG.exception('Restaurar saída ao sair')
             self.shutdown()

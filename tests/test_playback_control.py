@@ -23,6 +23,7 @@ class PlaybackControlTests(unittest.TestCase):
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
         self.bridge = module.Bridge()
+        self.bridge.enabled = True
         self.bridge.output_active = True
         self.bridge.reconnect.clear()
         self.bridge.connect = Mock()
@@ -61,21 +62,90 @@ class PlaybackControlTests(unittest.TestCase):
                 self.assertFalse(self.bridge.enabled)
                 self.bridge.connect.assert_not_called()
 
-    def test_transport_disconnect_recovers_when_speaker_still_wants_playback(self):
+    def test_transport_disconnect_never_sends_automatic_play(self):
         for state in ('PLAY_STATE', 'BUFFERING_STATE'):
             with self.subTest(state=state):
                 self.bridge.connect.reset_mock()
                 self.poll('UPNP', state)
-                self.bridge.connect.assert_called_once()
+                self.bridge.connect.assert_not_called()
                 self.assertTrue(self.bridge.enabled)
 
     def test_user_can_explicitly_resume_after_switching_off(self):
         self.poll('STANDBY')
         self.bridge.enable()
-        self.poll('STANDBY')
+        self.poll('UPNP', 'PLAY_STATE')
         self.bridge.connect.assert_called_once()
         self.assertTrue(self.bridge.enabled)
         self.assertFalse(self.bridge.reconnect.is_set())
+
+    def test_startup_ignores_saved_playback_permission(self):
+        restarted = module.Bridge()
+        restarted.output_active = True
+        self.assertFalse(restarted.enabled)
+        self.assertFalse(restarted.reconnect.is_set())
+        with patch.object(module, 'request', return_value='<nowPlaying source="STANDBY" />') as request, \
+             patch.object(restarted, 'connect') as connect:
+            for _ in range(3):
+                restarted.monitor_once()
+        connect.assert_not_called()
+        self.assertTrue(all(len(call.args) == 1 for call in request.call_args_list))
+
+    def test_failed_explicit_connection_is_not_retried_when_network_returns(self):
+        self.bridge.connect.side_effect = OSError('Network unavailable')
+        with self.assertRaises(OSError):
+            self.bridge.enable()
+        self.assertFalse(self.bridge.enabled)
+        self.assertFalse(self.bridge.reconnect.is_set())
+        for _ in range(3):
+            self.poll('STANDBY')
+        self.bridge.connect.assert_called_once()
+
+    def test_network_failure_releases_playback_permission(self):
+        with patch.object(module, 'request', side_effect=OSError('Network unavailable')):
+            with self.assertRaises(OSError):
+                self.bridge.monitor_once()
+        self.assertFalse(self.bridge.enabled)
+        self.poll('UPNP', 'PLAY_STATE')
+        self.bridge.connect.assert_not_called()
+
+    def test_windows_device_redetection_does_not_enable_streaming(self):
+        from pycaw.pycaw import AudioUtilities
+        self.bridge.enabled = False
+        self.bridge.output_active = False
+        self.bridge.enable = Mock()
+        raw = Mock()
+        raw.GetId.return_value = 'cable'
+        enumerator = Mock()
+        enumerator.GetDefaultAudioEndpoint.return_value = raw
+        device = SimpleNamespace(FriendlyName='SoundTouch Wi-Fi', EndpointVolume=Mock())
+        self.bridge.stop.wait = Mock(side_effect=lambda delay: self.bridge.stop.set())
+        with patch.object(AudioUtilities, 'GetDeviceEnumerator', return_value=enumerator), \
+             patch.object(AudioUtilities, 'CreateDevice', return_value=device), \
+             patch.object(module, 'request') as request:
+            self.bridge.volume_sync()
+        self.bridge.enable.assert_not_called()
+        request.assert_not_called()
+
+    def test_volume_change_does_not_wake_standby_speaker(self):
+        from pycaw.pycaw import AudioUtilities
+        self.bridge.clients.add(queue.Queue())
+        raw = Mock()
+        raw.GetId.return_value = 'cable'
+        enumerator = Mock()
+        enumerator.GetDefaultAudioEndpoint.return_value = raw
+        endpoint = Mock()
+        endpoint.GetMasterVolumeLevelScalar.return_value = 0.3
+        endpoint.GetMute.return_value = False
+        device = SimpleNamespace(FriendlyName='SoundTouch Wi-Fi', EndpointVolume=endpoint)
+        def response(*args):
+            self.bridge.stop.set()
+            return '<nowPlaying source="STANDBY" />'
+        with patch.object(AudioUtilities, 'GetDeviceEnumerator', return_value=enumerator), \
+             patch.object(AudioUtilities, 'CreateDevice', return_value=device), \
+             patch.object(module, 'request', side_effect=response) as request:
+            self.bridge.volume_sync()
+        self.assertFalse(self.bridge.enabled)
+        request.assert_called_once_with('http://192.0.2.1:8090/now_playing')
 
     def test_other_sources_are_not_taken_over(self):
         for source in ('SPOTIFY', 'INVALID_SOURCE'):

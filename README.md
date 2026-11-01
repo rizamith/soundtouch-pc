@@ -45,7 +45,7 @@ to open the application. Run it without `-Panel` to start in the system tray.
 - Preserve each speaker's volume when switching rooms.
 - Remember the selected room and start automatically when you sign in to Windows.
 - Release the speaker for Spotify or another source.
-- Detect changes to the default Windows output and retry network connections.
+- Detect changes to the default Windows output without automatically waking speakers.
 
 ## Requirements
 
@@ -141,16 +141,20 @@ Shutdown uses a fresh state query because Bose's POWER command is a toggle;
 repeating an already satisfied request does not send another toggle. Turning
 off means standby, not disconnecting electrical power.
 
-Selecting **SoundTouch Wi-Fi** in the Windows output selector activates the
-bridge for the last selected room. The bridge does not force playback back
-to the PC if you subsequently select Spotify on the speaker.
+The application always starts with streaming paused, even if it was playing
+when Windows shut down. Select the room in the panel to start playback.
+Choosing **SoundTouch Wi-Fi** in Windows only selects the virtual audio device;
+it does not wake a speaker. Device re-detection, status polling, network scans,
+and recovery from sleep or a network interruption never send playback commands.
 
 Switching the speaker off, pausing it, or stopping playback from the SoundTouch
 mobile app or its physical controls also pauses this bridge. That choice is
-saved across application restarts. To resume PC audio, select the room again
-in the speaker list. Automatic transport recovery only resumes
-a disconnected stream when the speaker still reports playback or buffering;
-it does not wake a speaker that reports standby.
+respected across application restarts. Selecting another source also releases
+the bridge. To resume PC audio, select the room again in the speaker list.
+A failed connection is not retried automatically. An interrupted HTTP stream
+may be reopened by the speaker itself while the session remains enabled, but
+the app never sends an automatic Play command. Volume synchronization checks
+that the speaker is still playing the UPnP source before sending changes.
 
 Application volume controls, such as VLC's slider, still affect their own
 audio. The Windows master slider is synchronized with the selected speaker.
