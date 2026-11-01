@@ -574,14 +574,22 @@ class Bridge:
                 self.deactivate()
                 raise
 
-    def pause(self):
+    def pause(self, standby=False):
         with self.control_lock:
             owned_stream = bool(self.clients)
+            was_enabled = self.enabled
             self.deactivate()
             try:
                 np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
                 if np.get('source') == 'UPNP' and owned_stream:
-                    self.soap('Stop', {'InstanceID': 0})
+                    if standby and was_enabled and np.get('deviceID') == self.cfg['speaker_id']:
+                        for state in ('press', 'release'):
+                            request(f'http://{self.ip}:8090/key',
+                                    f'<key state="{state}" sender="Gabbo">POWER</key>',
+                                    {'Content-Type': 'text/xml'})
+                        LOG.info('Previous room standby requested for local playback: %s', self.speaker_name)
+                    elif not standby:
+                        self.soap('Stop', {'InstanceID': 0})
             except Exception:
                 LOG.exception('Parar UPnP')
 
@@ -590,6 +598,7 @@ class Bridge:
         from pycaw.pycaw import AudioUtilities
         from pycaw.constants import ERole
         comtypes.CoInitialize()
+        self.control_lock.acquire()
         try:
             current = AudioUtilities.GetSpeakers().id
             devices = AudioUtilities.GetAllDevices()
@@ -621,8 +630,9 @@ class Bridge:
             if to_speaker:
                 self.enable()
             else:
-                self.pause()
+                self.pause(standby=True)
         finally:
+            self.control_lock.release()
             comtypes.CoUninitialize()
 
     def snapshot(self):

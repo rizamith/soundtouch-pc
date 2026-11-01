@@ -57,25 +57,15 @@ def show(bridge):
     area = tk.Frame(root, bg=bg)
     area.pack(fill='both', expand=True, padx=28, pady=(18, 12))
     canvas = tk.Canvas(area, bg=bg, highlightthickness=0)
-    from tkinter import ttk
-    style = ttk.Style(root)
-    style.theme_use('clam')
-    style.configure('Dark.Vertical.TScrollbar', background='#313b42', troughcolor=bg,
-                    bordercolor=bg, arrowcolor=muted, width=10)
-    scroll = ttk.Scrollbar(area, orient='vertical', command=canvas.yview, style='Dark.Vertical.TScrollbar')
-    def scrolling(first, last):
-        scroll.set(first, last)
-        if float(first) <= 0 and float(last) >= 1:
-            scroll.pack_forget()
-        elif not scroll.winfo_manager():
-            scroll.pack(side='right', fill='y', before=canvas)
-    canvas.configure(yscrollcommand=scrolling)
     canvas.pack(side='left', fill='both', expand=True)
     rows = tk.Frame(canvas, bg=bg)
     window = canvas.create_window(0, 0, anchor='nw', window=rows)
     rows.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
     canvas.bind('<Configure>', lambda e: canvas.itemconfigure(window, width=e.width))
-    root.bind('<MouseWheel>', lambda e: canvas.yview_scroll(-int(e.delta / 120), 'units'))
+    def wheel(event):
+        if rows.winfo_height() > canvas.winfo_height():
+            canvas.yview_scroll(-int(event.delta / 120), 'units')
+    root.bind('<MouseWheel>', wheel)
     cards = {}
 
     def make_card(key, title, command, shutdown=None):

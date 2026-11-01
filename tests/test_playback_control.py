@@ -209,7 +209,27 @@ class PlaybackControlTests(unittest.TestCase):
             self.bridge.route(False)
         self.assertEqual(select.call_args.args[0], prefix+'realtek')
         self.assertEqual(self.bridge.cfg['previous_output'], prefix+'realtek')
-        self.bridge.pause.assert_called_once()
+        self.bridge.pause.assert_called_once_with(standby=True)
+
+    def test_local_output_transition_requests_standby_for_owned_stream(self):
+        self.bridge.clients.add(queue.Queue())
+        with patch.object(module, 'request', return_value='<nowPlaying deviceID="TEST" source="UPNP" />') as request:
+            self.bridge.pause(standby=True)
+        self.assertEqual(request.call_count, 3)
+        self.assertIn('state="press"', request.call_args_list[1].args[1])
+        self.assertIn('POWER', request.call_args_list[1].args[1])
+        self.assertIn('state="release"', request.call_args_list[2].args[1])
+        self.assertFalse(self.bridge.enabled)
+        self.bridge.soap.assert_not_called()
+
+    def test_local_output_transition_leaves_other_sources_and_standby_alone(self):
+        for source in ('SPOTIFY', 'STANDBY'):
+            self.bridge.enabled = True
+            self.bridge.clients.add(queue.Queue())
+            with patch.object(module, 'request', return_value=f'<nowPlaying deviceID="TEST" source="{source}" />') as request:
+                self.bridge.pause(standby=True)
+            request.assert_called_once()
+        self.bridge.soap.assert_not_called()
 
     def test_local_pc_playback_never_opens_a_capture_device(self):
         from pycaw.pycaw import AudioUtilities

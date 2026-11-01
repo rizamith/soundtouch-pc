@@ -129,7 +129,7 @@ Double-click the green system-tray icon to open the panel.
 | --- | --- |
 | Room card / **Listen here** | Wake that specific speaker and start streaming PC audio. |
 | **Scan** | Discover and save Bose SoundTouch speakers without waking them. Discovery also runs when the panel starts. |
-| **This PC** | Restore the previous local Windows output and pause streaming. |
+| **This PC** | Restore the previous local Windows output and put the previous streaming speaker in standby. |
 | Volume slider / **Mute** | Control the active Windows output: local audio or the streaming speaker. |
 | **Shutdown** on a room card | Put that specific room in standby without selecting it or changing the Windows output. |
 | **Release speaker** | Pause streaming and release the speaker for another source. |
@@ -139,9 +139,9 @@ paused: on, playing, paused, standby, or unavailable on the network.
 All saved rooms are polled independently. The local card shows the actual
 Windows output name, including a Bluetooth speaker when that is the local output.
 A connected SoundLink Revolve is a Windows audio device, not a SoundTouch room.
-The room list scrolls when more speakers are found.
+The room list supports the mouse wheel when more speakers are found, without a visible scrollbar.
 The dark interface uses rounded room cards. When switching between SoundTouch
-rooms, the app requests standby on the previous room only if it still has this
+rooms or choosing **This PC**, the app requests standby on the previous room only if it still has this
 app's active stream and reports the UPnP source with the expected device ID.
 Rooms already in standby or using Spotify or another source are left alone.
 Shutdown uses a fresh state query because Bose's POWER command is a toggle;
