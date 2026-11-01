@@ -162,6 +162,10 @@ A failed connection is not retried automatically. An interrupted HTTP stream
 may be reopened by the speaker itself while the session remains enabled, but
 the app never sends an automatic Play command. Volume synchronization checks
 that the speaker is still playing the UPnP source before sending changes.
+After an explicit playback request, the bridge allows up to eight seconds for
+transitional status (such as UPnP without a playback state) to settle. It does
+not resend Play during this interval. Standby, pause, stop, and switching to
+Spotify are still respected immediately.
 
 Application volume controls, such as VLC's slider, still affect their own
 audio. The Windows master slider is synchronized with the selected speaker.

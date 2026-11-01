@@ -61,6 +61,7 @@ class Bridge:
         self.test_until = 0
         self.last_client = 0
         self.connected_once = False
+        self.playback_deadline = 0
         self.token = secrets.token_urlsafe(24)
         self.control_lock = threading.RLock()
         self.room_states = {}
@@ -279,6 +280,7 @@ class Bridge:
                     encoder.set_channels(channels)
                     encoder.set_quality(2)
                     encoder.silence()
+                    encoded_pcm = False
                     LOG.info('Captura: %s, %s Hz, %s canais', dev['name'], rate, channels)
                     with audio.open(format=pa.paInt16, channels=channels, rate=rate, input=True,
                                     input_device_index=dev['index'], frames_per_buffer=frames,
@@ -299,12 +301,14 @@ class Bridge:
                             values = array.array('h', pcm)
                             self.level = max((abs(x) for x in values), default=0) / 32768
                             self.broadcast(encoder.encode(pcm))
+                            encoded_pcm = True
                             if time.monotonic() >= check:
                                 check = time.monotonic() + 1
                                 # PortAudio's device table is cached until every instance closes.
                                 if AudioUtilities.GetSpeakers().id != endpoint_id:
                                     break
-                        self.broadcast(encoder.flush())
+                        if encoded_pcm:
+                            self.broadcast(encoder.flush())
             except Exception:
                 LOG.exception('Captura indisponível; tentar novamente')
                 self.capture_name = 'No audio output available'
@@ -427,6 +431,7 @@ class Bridge:
     def deactivate(self):
         """Caller holds control_lock; release resources without speaker commands."""
         self.enabled = False
+        self.playback_deadline = 0
         self.reconnect.clear()
         with self.lock:
             for client in self.clients:
@@ -435,6 +440,16 @@ class Bridge:
                 client.put_nowait(None)
             self.clients.clear()
         self.save()
+
+    def awaiting_playback(self, np):
+        """Allow only transitional status after an explicit Play, never a stop."""
+        source, state = np.get('source'), np.findtext('playStatus')
+        if source == 'UPNP' and state in ('PLAY_STATE', 'BUFFERING_STATE'):
+            self.playback_deadline = 0
+            return False
+        transitional = (source in ('LOCAL', 'INVALID_SOURCE') and not state or
+                        source == 'UPNP' and state in (None, '', 'TRANSITIONING'))
+        return bool(transitional and time.monotonic() < self.playback_deadline)
 
     def monitor_once(self):
         """Observe only: polling must never send playback or power commands."""
@@ -456,6 +471,9 @@ class Bridge:
                     listening = bool(self.clients)
                 source = np.get('source')
                 playback = np.findtext('playStatus')
+                if self.awaiting_playback(np):
+                    self.status = f'{self.speaker_name} · connecting…'
+                    return
                 if source != 'UPNP' or playback not in ('PLAY_STATE', 'BUFFERING_STATE'):
                     # A control app or physical button changed playback. Do not undo it,
                     # even if the HTTP client has not closed yet. Persist across restarts.
@@ -528,6 +546,10 @@ class Bridge:
                             previous = None
                             continue
                         np = self.refresh_speaker_state()
+                        if self.awaiting_playback(np):
+                            previous = None
+                            self.stop.wait(0.25)
+                            continue
                         if np.get('source') != 'UPNP' or np.findtext('playStatus') not in ('PLAY_STATE', 'BUFFERING_STATE'):
                             self.deactivate()
                             previous = None
@@ -569,6 +591,7 @@ class Bridge:
             try:
                 LOG.info('Explicit playback requested: %s', self.speaker_name)
                 self.connect()
+                self.playback_deadline = time.monotonic() + 8
                 self.save()
             except Exception:
                 self.deactivate()
@@ -627,6 +650,7 @@ class Bridge:
             AudioUtilities.SetDefaultDevice(target, [ERole.eConsole, ERole.eMultimedia])
             if AudioUtilities.GetSpeakers().id != target:
                 raise RuntimeError('Windows did not switch the playback output. Please try again.')
+            self.output_active = to_speaker
             if to_speaker:
                 self.enable()
             else:

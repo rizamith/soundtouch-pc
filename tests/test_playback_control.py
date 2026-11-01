@@ -78,6 +78,50 @@ class PlaybackControlTests(unittest.TestCase):
         self.assertTrue(self.bridge.enabled)
         self.assertFalse(self.bridge.reconnect.is_set())
 
+    def test_explicit_play_tolerates_transitional_status_until_playing(self):
+        self.bridge.enable()
+        for source in ('LOCAL', 'UPNP', 'UPNP'):
+            self.poll(source)
+            self.assertTrue(self.bridge.enabled)
+        self.poll('UPNP', 'PLAY_STATE')
+        self.assertTrue(self.bridge.enabled)
+        self.assertEqual(self.bridge.playback_deadline, 0)
+        self.bridge.connect.assert_called_once()
+
+    def test_transitional_status_has_a_deadline_and_never_retries_play(self):
+        self.bridge.enable()
+        self.bridge.playback_deadline = 1
+        self.poll('UPNP')
+        self.assertFalse(self.bridge.enabled)
+        self.bridge.connect.assert_called_once()
+
+    def test_standby_and_pause_are_respected_during_initial_connection(self):
+        for source, state in [('STANDBY', None), ('UPNP', 'PAUSE_STATE'), ('UPNP', 'STOP_STATE'), ('SPOTIFY', 'PLAY_STATE')]:
+            with self.subTest(source=source, state=state):
+                self.bridge.enable()
+                self.poll(source, state)
+                self.assertFalse(self.bridge.enabled)
+
+    def test_volume_worker_does_not_cancel_transitional_connection(self):
+        from pycaw.pycaw import AudioUtilities
+        self.bridge.enable()
+        self.bridge.clients.add(queue.Queue())
+        raw = Mock()
+        raw.GetId.return_value = 'cable'
+        enumerator = Mock()
+        enumerator.GetDefaultAudioEndpoint.return_value = raw
+        endpoint = Mock()
+        endpoint.GetMasterVolumeLevelScalar.return_value = 0.3
+        endpoint.GetMute.return_value = False
+        device = SimpleNamespace(FriendlyName='SoundTouch Wi-Fi', EndpointVolume=endpoint)
+        self.bridge.stop.wait = Mock(side_effect=lambda delay: self.bridge.stop.set())
+        with patch.object(AudioUtilities, 'GetDeviceEnumerator', return_value=enumerator), \
+             patch.object(AudioUtilities, 'CreateDevice', return_value=device), \
+             patch.object(module, 'request', return_value='<nowPlaying source="UPNP" />') as request:
+            self.bridge.volume_sync()
+        self.assertTrue(self.bridge.enabled)
+        request.assert_called_once_with('http://192.0.2.1:8090/now_playing')
+
     def test_startup_ignores_saved_playback_permission(self):
         restarted = module.Bridge()
         restarted.output_active = True
