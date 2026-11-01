@@ -140,6 +140,10 @@ All saved rooms are polled independently. The local card shows the actual
 Windows output name, including a Bluetooth speaker when that is the local output.
 A connected SoundLink Revolve is a Windows audio device, not a SoundTouch room.
 The room list scrolls when more speakers are found.
+The dark interface uses rounded room cards. When switching between SoundTouch
+rooms, the app requests standby on the previous room only if it still has this
+app's active stream and reports the UPnP source with the expected device ID.
+Rooms already in standby or using Spotify or another source are left alone.
 Shutdown uses a fresh state query because Bose's POWER command is a toggle;
 repeating an already satisfied request does not send another toggle. Turning
 off means standby, not disconnecting electrical power.

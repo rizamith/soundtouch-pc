@@ -1,5 +1,6 @@
 """Discovery and catalog changes must not power on speakers or start audio."""
 import json
+import queue
 from pathlib import Path
 import sys
 import tempfile
@@ -64,6 +65,30 @@ class DiscoveryTests(unittest.TestCase):
         response.read.return_value = b'<root><device>TV</device></root>'
         with patch.object(discovery.urllib.request, 'urlopen', return_value=response):
             self.assertIsNone(discovery.probe('192.0.2.20'))
+
+    def test_switching_rooms_puts_previous_owned_stream_in_standby(self):
+        self.bridge.merge_speakers([{'name': 'Kitchen', 'id': 'B', 'ip': '192.0.2.12', 'model': 'Other'}])
+        self.bridge.enabled = True
+        self.bridge.clients.add(queue.Queue())
+        with patch.object(module, 'request', return_value='<nowPlaying deviceID="A" source="UPNP" />') as request:
+            self.bridge.select_speaker('Kitchen')
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(request.call_args_list[1].args[0], 'http://192.0.2.10:8090/key')
+        self.assertIn('POWER', request.call_args_list[1].args[1])
+        self.assertIn('state="release"', request.call_args_list[2].args[1])
+        self.assertEqual(self.bridge.speaker_name, 'Kitchen')
+        self.bridge.route.assert_called_once_with(True)
+
+    def test_switching_never_powers_off_external_source_or_wrong_device(self):
+        self.bridge.merge_speakers([{'name': 'Kitchen', 'id': 'B', 'ip': '192.0.2.12', 'model': 'Other'}])
+        for source, identity in [('SPOTIFY', 'A'), ('STANDBY', 'A'), ('UPNP', 'WRONG')]:
+            with self.subTest(source=source, identity=identity):
+                self.bridge.select_speaker('Office', play=False)
+                self.bridge.enabled = True
+                self.bridge.clients.add(queue.Queue())
+                with patch.object(module, 'request', return_value=f'<nowPlaying deviceID="{identity}" source="{source}" />') as request:
+                    self.bridge.select_speaker('Kitchen')
+                request.assert_called_once()
 
     def test_shutdown_another_room_does_not_select_or_route_audio(self):
         self.bridge.merge_speakers([{'name': 'Kitchen', 'id': 'B', 'ip': '192.0.2.12', 'model': 'Other'}])

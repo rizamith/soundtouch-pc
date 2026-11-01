@@ -151,13 +151,19 @@ class Bridge:
             if play:
                 self.allow_speaker(selected['ip'])
             if selected['id'] != self.cfg['speaker_id']:
-                if self.clients:
+                if self.enabled and self.clients and play:
                     try:
                         np = ET.fromstring(request(f'http://{self.ip}:8090/now_playing'))
-                        if np.get('source') == 'UPNP':
-                            self.soap('Stop', {'InstanceID': 0})
+                        if (np.tag == 'nowPlaying' and np.get('deviceID') == self.cfg['speaker_id']
+                                and np.get('source') == 'UPNP'):
+                            # Only retire our active stream, never another controller's source.
+                            for state in ('press', 'release'):
+                                request(f'http://{self.ip}:8090/key',
+                                        f'<key state="{state}" sender="Gabbo">POWER</key>',
+                                        {'Content-Type': 'text/xml'})
+                            LOG.info('Previous room standby requested: %s', self.speaker_name)
                     except Exception:
-                        LOG.exception('Parar coluna anterior')
+                        LOG.exception('Could not put previous room in standby')
                 with self.lock:
                     for client in self.clients:
                         while not client.empty():
