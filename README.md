@@ -8,7 +8,7 @@ its UPnP renderer. Audio streaming and speaker control use local network
 interfaces and do not require the Bose cloud service.
 
 The English desktop interface discovers Bose SoundTouch speakers on the local
-network and lets you choose them from a saved list. Quartos (a SoundTouch SA-5)
+network and displays a separate card for every saved speaker. Quartos (a SoundTouch SA-5)
 and Sala (a Bose Cinemate with SoundTouch) were verified on real hardware.
 Other SoundTouch models can be discovered but have not been playback-tested.
 Generic DLNA renderers without the SoundTouch control API are not supported.
@@ -127,16 +127,19 @@ Double-click the green system-tray icon to open the panel.
 
 | Panel control | Behavior |
 | --- | --- |
-| Speaker list | Select a speaker to wake it and start streaming PC audio. |
-| **Scan network** | Discover and save Bose SoundTouch speakers without waking them. |
+| Room card / **Listen here** | Wake that specific speaker and start streaming PC audio. |
+| **Scan** | Discover and save Bose SoundTouch speakers without waking them. Discovery also runs when the panel starts. |
 | **This PC** | Restore the previous local Windows output and pause streaming. |
-| Volume slider | Adjust the selected speaker's volume; Windows volume keys work too. |
-| **Shutdown** | Put the selected speaker in standby and pause the PC bridge. |
-| **Release for Spotify** | Pause streaming and release the speaker for another source. |
-| **Refresh status** | Refresh the current speaker state. |
+| Volume slider / **Mute** | Control the active Windows output: local audio or the streaming speaker. |
+| **Shutdown** on a room card | Put that specific room in standby without selecting it or changing the Windows output. |
+| **Release speaker** | Pause streaming and release the speaker for another source. |
 
-The status card reports the physical speaker's state even when streaming is
-paused: on, playing, buffering, paused, standby, or unavailable on the network.
+Each room card reports the physical speaker's state even when streaming is
+paused: on, playing, paused, standby, or unavailable on the network.
+All saved rooms are polled independently. The local card shows the actual
+Windows output name, including a Bluetooth speaker when that is the local output.
+A connected SoundLink Revolve is a Windows audio device, not a SoundTouch room.
+The room list scrolls when more speakers are found.
 Shutdown uses a fresh state query because Bose's POWER command is a toggle;
 repeating an already satisfied request does not send another toggle. Turning
 off means standby, not disconnecting electrical power.

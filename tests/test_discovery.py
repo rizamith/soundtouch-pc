@@ -65,6 +65,46 @@ class DiscoveryTests(unittest.TestCase):
         with patch.object(discovery.urllib.request, 'urlopen', return_value=response):
             self.assertIsNone(discovery.probe('192.0.2.20'))
 
+    def test_shutdown_another_room_does_not_select_or_route_audio(self):
+        self.bridge.merge_speakers([{'name': 'Kitchen', 'id': 'B', 'ip': '192.0.2.12', 'model': 'Other'}])
+        self.bridge.enabled = True
+        with patch.object(module, 'request', return_value='<nowPlaying deviceID="B" source="SPOTIFY" />') as request:
+            self.bridge.shutdown_room('Kitchen')
+        self.assertEqual(self.bridge.speaker_name, 'Office')
+        self.assertTrue(self.bridge.enabled)
+        self.bridge.route.assert_not_called()
+        self.bridge.soap.assert_not_called()
+        self.assertEqual(request.call_count, 3)
+        self.assertTrue(all(call.args[0].startswith('http://192.0.2.12:8090/') for call in request.call_args_list))
+        self.assertIn('POWER', request.call_args_list[1].args[1])
+
+    def test_shutdown_standby_room_never_sends_toggle(self):
+        self.bridge.merge_speakers([{'name': 'Kitchen', 'id': 'B', 'ip': '192.0.2.12', 'model': 'Other'}])
+        with patch.object(module, 'request', return_value='<nowPlaying deviceID="B" source="STANDBY" />') as request:
+            self.bridge.shutdown_room('Kitchen')
+        request.assert_called_once()
+        self.bridge.route.assert_not_called()
+
+    def test_shutdown_rejects_wrong_device_at_saved_address(self):
+        self.bridge.merge_speakers([{'name': 'Kitchen', 'id': 'B', 'ip': '192.0.2.12', 'model': 'Other'}])
+        with patch.object(module, 'request', return_value='<nowPlaying deviceID="C" source="SPOTIFY" />') as request:
+            with self.assertRaises(RuntimeError):
+                self.bridge.shutdown_room('Kitchen')
+        request.assert_called_once()
+
+    def test_room_status_polling_is_read_only(self):
+        self.bridge.merge_speakers([{'name': 'Kitchen', 'id': 'B', 'ip': '192.0.2.12', 'model': 'Other'}])
+        def response(url):
+            device = 'A' if '192.0.2.10:' in url else 'B'
+            return f'<nowPlaying deviceID="{device}" source="STANDBY" />'
+        self.bridge.stop.wait = Mock(side_effect=lambda delay: self.bridge.stop.set())
+        with patch.object(module, 'request', side_effect=response) as request:
+            self.bridge.poll_rooms()
+        self.assertEqual(len(self.bridge.room_states), 2)
+        self.assertTrue(all(state['state'] == 'Standby' for state in self.bridge.room_states.values()))
+        self.assertEqual(request.call_count, 2)
+        self.bridge.route.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

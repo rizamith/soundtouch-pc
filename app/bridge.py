@@ -62,7 +62,8 @@ class Bridge:
         self.last_client = 0
         self.connected_once = False
         self.token = secrets.token_urlsafe(24)
-        self.control_lock = threading.Lock()
+        self.control_lock = threading.RLock()
+        self.room_states = {}
         self.output_active = None
         self.pc_volume = None
         self.speaker_volume = None
@@ -378,6 +379,45 @@ class Bridge:
                 self.stop.wait(0.3)
             raise RuntimeError('The speaker did not confirm the state change. Please try again.')
 
+    def shutdown_room(self, name):
+        """Target the named room without selecting it or changing Windows output."""
+        with self.control_lock:
+            room = self.cfg['speakers'][name].copy()
+            if room['id'] == self.cfg['speaker_id']:
+                self.power(False)
+                return
+            url = f'http://{room["ip"]}:8090'
+            np = ET.fromstring(request(url + '/now_playing'))
+            if np.tag != 'nowPlaying' or np.get('deviceID') != room['id'] or not np.get('source'):
+                raise RuntimeError('Could not verify the speaker. Scan again before shutting it down.')
+            if np.get('source') != 'STANDBY':
+                for state in ('press', 'release'):
+                    request(url + '/key', f'<key state="{state}" sender="Gabbo">POWER</key>',
+                            {'Content-Type': 'text/xml'})
+
+    def poll_rooms(self):
+        """Read every saved room independently; never select or wake one."""
+        from concurrent.futures import ThreadPoolExecutor
+        def read(item):
+            name, room = item
+            try:
+                np = ET.fromstring(request(f'http://{room["ip"]}:8090/now_playing'))
+                if np.tag != 'nowPlaying' or np.get('deviceID') != room['id'] or not np.get('source'):
+                    raise ValueError('Unverified speaker')
+                source, playback = np.get('source'), np.findtext('playStatus')
+                state = ('Standby' if source == 'STANDBY' else 'Playing' if playback == 'PLAY_STATE'
+                         else 'Paused' if playback == 'PAUSE_STATE' else 'On')
+                return name, {'state': state, 'source': source, 'available': True,
+                              'powered': source != 'STANDBY'}
+            except Exception:
+                return name, {'state': 'Unavailable', 'available': False, 'powered': False}
+        while not self.stop.is_set():
+            with self.control_lock:
+                rooms = [(name, room.copy()) for name, room in self.cfg['speakers'].items()]
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                self.room_states = dict(pool.map(read, rooms))
+            self.stop.wait(3)
+
     def deactivate(self):
         """Caller holds control_lock; release resources without speaker commands."""
         self.enabled = False
@@ -585,6 +625,7 @@ class Bridge:
                 'speaker_available': self.speaker_available, 'speaker_powered': self.speaker_powered,
                 'speaker_state': self.speaker_state, 'speaker_source': self.speaker_source,
                 'speakers': self.cfg['speakers'], 'scanning': self.scanning, 'scan_status': self.scan_status,
+                'room_states': self.room_states, 'local_output_name': self.local_output_name,
                 'capture': self.capture_name, 'clients': len(self.clients),
                 'captured_frames': self.captured_frames, 'encoded_bytes': self.encoded_bytes,
                 'served_bytes': self.served_bytes, 'level': round(self.level, 4),
@@ -644,7 +685,7 @@ class Bridge:
         self.server = ThreadingHTTPServer(('0.0.0.0', self.cfg['port']), Handler)
         self.server.daemon_threads = True
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        for function in (self.capture, self.volume_sync, self.monitor):
+        for function in (self.capture, self.volume_sync, self.monitor, self.poll_rooms):
             worker = threading.Thread(target=function, daemon=True)
             self.workers.append(worker)
             worker.start()
@@ -656,156 +697,8 @@ class Bridge:
             worker.join(timeout=6)
 
     def panel(self):
-        import tkinter as tk
-        from tkinter import ttk
-        import comtypes
-        from pycaw.pycaw import AudioUtilities
-        comtypes.CoInitialize()
-        root = tk.Tk()
-        root.title('SoundTouch · PC Audio')
-        if (ASSETS / 'soundtouch.ico').exists():
-            root.iconbitmap(str(ASSETS / 'soundtouch.ico'))
-        root.geometry('540x640')
-        root.resizable(False, False)
-        root.configure(bg='#101820')
-        root.withdraw()
-        root.protocol('WM_DELETE_WINDOW', root.withdraw)
-        bg, card, fg, dim, accent = '#101820', '#1b2935', '#f1f6fa', '#9aafbf', '#57dfbc'
-        heading = tk.Frame(root, bg=bg)
-        heading.pack(fill='x', padx=30, pady=(27, 20))
-        tk.Label(heading, text='SoundTouch', font=('Segoe UI', 25, 'bold'), fg=fg, bg=bg).pack(anchor='w')
-        tk.Label(heading, text='Your PC audio, on your speakers.', font=('Segoe UI', 11), fg=dim, bg=bg).pack(anchor='w', pady=(3, 0))
-        connection = tk.Frame(root, bg=card, padx=20, pady=17)
-        connection.pack(fill='x', padx=30)
-        status_label = tk.Label(connection, text='Checking connection…', font=('Segoe UI', 12, 'bold'), fg=accent, bg=card)
-        status_label.pack(anchor='w')
-        info_label = tk.Label(connection, text='SoundTouch SA-5 · Wi-Fi', font=('Segoe UI', 10), fg=dim, bg=card)
-        info_label.pack(anchor='w', pady=(4, 0))
-        tk.Label(root, text='CHOOSE A SPEAKER', font=('Segoe UI', 9, 'bold'), fg=dim, bg=bg).pack(anchor='w', padx=30, pady=(22, 9))
-        choices = tk.Frame(root, bg=bg)
-        choices.pack(fill='x', padx=30)
-        message = tk.StringVar()
-
-        def work(fn):
-            def run():
-                try:
-                    fn()
-                except Exception as e:
-                    LOG.exception('Painel')
-                    errors.put(str(e))
-            threading.Thread(target=run, daemon=True).start()
-
-        errors = queue.Queue()
-        selection = tk.StringVar(value=self.speaker_name)
-        style = ttk.Style(root)
-        style.theme_use('clam')
-        style.configure('Speaker.TCombobox', fieldbackground=card, background=card, foreground=fg, padding=8)
-        style.map('Speaker.TCombobox', fieldbackground=[('readonly', card)], foreground=[('readonly', fg)])
-        picker = ttk.Combobox(choices, textvariable=selection, state='readonly', style='Speaker.TCombobox',
-                              font=('Segoe UI', 12), values=sorted(self.cfg['speakers']))
-        picker.pack(side='left', fill='x', expand=True, padx=(0, 8))
-        picker.bind('<<ComboboxSelected>>', lambda event: work(lambda: self.select_speaker(selection.get())))
-        scan_button = tk.Button(choices, text='Scan network', font=('Segoe UI', 10), relief='flat',
-                                bg=card, fg=fg, padx=10, pady=10, cursor='hand2', command=lambda: work(self.scan_network))
-        scan_button.pack(side='right')
-        scan_label = tk.Label(root, text='', font=('Segoe UI', 9), fg=dim, bg=bg)
-        scan_label.pack(anchor='w', padx=30, pady=(5, 0))
-        destinations = tk.Frame(root, bg=bg)
-        destinations.pack(fill='x', padx=30, pady=(10, 0))
-        right = tk.Button(destinations, text='This PC', font=('Segoe UI', 12, 'bold'), relief='flat', bd=0,
-                          padx=10, pady=11, cursor='hand2', command=lambda: work(lambda: self.route(False)))
-        right.pack(side='left', fill='x', expand=True)
-        power_controls = tk.Frame(root, bg=bg)
-        power_controls.pack(fill='x', padx=30, pady=(13, 0))
-        off_button = tk.Button(power_controls, text='Shutdown', command=lambda: work(lambda: self.power(False)),
-                               font=('Segoe UI', 11, 'bold'), relief='flat', bg='#a63a43', fg=fg,
-                               activebackground='#c64b55', activeforeground=fg, padx=12, pady=10, cursor='hand2')
-        off_button.pack(fill='x')
-        volume_header = tk.Frame(root, bg=bg)
-        volume_header.pack(fill='x', padx=30, pady=(22, 0))
-        volume_title = tk.Label(volume_header, text='Speaker volume', font=('Segoe UI', 11), fg=fg, bg=bg)
-        volume_title.pack(side='left')
-        volume_label = tk.Label(volume_header, text='—', font=('Segoe UI', 14, 'bold'), fg=accent, bg=bg)
-        volume_label.pack(side='right')
-        cable_endpoint = None
-
-        def cable_volume():
-            nonlocal cable_endpoint
-            if cable_endpoint is None:
-                cable = next(d for d in AudioUtilities.GetAllDevices() if d.id.startswith('{0.0.0.')
-                             and d.state.value == 1 and d.FriendlyName.startswith('SoundTouch'))
-                cable_endpoint = cable.EndpointVolume
-            return cable_endpoint
-
-        def change_volume(value):
-            try:
-                endpoint = cable_volume()
-                number = int(float(value))
-                if number != round(endpoint.GetMasterVolumeLevelScalar() * 100):
-                    endpoint.SetMasterVolumeLevelScalar(number / 100, None)
-                volume_label.configure(text=str(number))
-            except Exception as e:
-                message.set(str(e))
-
-        slider = tk.Scale(root, from_=0, to=100, orient='horizontal', showvalue=False, command=change_volume,
-                          bg=bg, fg=fg, troughcolor=card, activebackground=accent, highlightthickness=0,
-                          bd=0, sliderrelief='flat', sliderlength=18, width=8)
-        slider.pack(fill='x', padx=28, pady=(9, 0))
-        hint = tk.Label(root, text='You can also use the Windows volume slider or keyboard keys.',
-                        font=('Segoe UI', 9), fg=dim, bg=bg)
-        hint.pack(anchor='w', padx=30, pady=(8, 0))
-        footer = tk.Frame(root, bg=bg)
-        footer.pack(fill='x', padx=30, pady=(20, 0))
-        tk.Button(footer, text='Release for Spotify', command=lambda: work(self.pause), bg=card, fg=fg,
-                  font=('Segoe UI', 10), relief='flat', padx=13, pady=7, cursor='hand2').pack(side='left')
-        tk.Button(footer, text='Refresh status', command=lambda: work(self.monitor_once), bg=bg, fg=dim,
-                  font=('Segoe UI', 10), relief='flat', padx=10, pady=7, cursor='hand2').pack(side='right')
-        tk.Label(root, textvariable=message, font=('Segoe UI', 9), fg='#f8b98a', bg=bg,
-                 wraplength=480).pack(anchor='w', padx=30, pady=5)
-
-        def update():
-            if self.stop.is_set():
-                root.destroy()
-                return
-            if self.ui_show.is_set():
-                self.ui_show.clear()
-                root.deiconify()
-                root.lift()
-            if not errors.empty():
-                message.set(errors.get_nowait())
-            active = self.output_active and self.enabled
-            status_label.configure(text=f'●  {self.speaker_name} · {self.speaker_state}',
-                                   fg=accent if self.speaker_powered else dim)
-            audio_hint = ('Local PC output active' if self.output_active is False else
-                          'PC audio active' if active and self.clients else 'PC streaming paused')
-            info_label.configure(text=f'Bose {self.cfg["speakers"][self.speaker_name]["model"]} · {audio_hint}')
-            can_shutdown = self.speaker_available and self.speaker_powered is True
-            off_button.configure(state='normal' if can_shutdown else 'disabled',
-                                 bg='#a63a43' if can_shutdown else '#42282a')
-            volume_title.configure(text=f'Volume · {self.speaker_name}')
-            names = tuple(sorted(self.cfg['speakers'].copy()))
-            if tuple(picker.cget('values')) != names:
-                picker.configure(values=names)
-            if selection.get() not in self.cfg['speakers']:
-                selection.set(self.speaker_name)
-            scan_button.configure(state='disabled' if self.scanning else 'normal',
-                                  text='Scanning…' if self.scanning else 'Scan network')
-            scan_label.configure(text=self.scan_status)
-            right.configure(bg=accent if not self.output_active else card, fg=bg if not self.output_active else fg,
-                            activebackground=accent, activeforeground=bg)
-            slider.configure(state='normal' if active and self.clients else 'disabled')
-            try:
-                current = round(cable_volume().GetMasterVolumeLevelScalar() * 100)
-                if int(slider.get()) != current:
-                    slider.set(current)
-                volume_label.configure(text=str(current))
-            except Exception:
-                pass
-            root.after(250, update)
-
-        update()
-        root.mainloop()
-        comtypes.CoUninitialize()
+        from panel import show
+        show(self)
 
     def tray(self):
         import pystray
