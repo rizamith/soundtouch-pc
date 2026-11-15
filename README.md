@@ -60,6 +60,25 @@ is that virtual device, renamed by this project. The bridge then sends its
 audio to the physical Bose speaker. Network discovery alone does not turn a
 speaker into a native Windows playback device.
 
+### Hide unused virtual audio devices
+
+This bridge uses loopback capture of **SoundTouch Wi-Fi**, so it does not need
+the recording device **CABLE Output** or the playback device **CABLE In 16ch**.
+To remove those two devices from normal Windows and browser audio selectors:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\hide-unused-cable.py
+```
+
+This disables only those endpoints, keeps SoundTouch playback active, and
+leaves physical microphone defaults unchanged. Reload browser pages after the
+change and choose your physical microphone if a site remembers the old cable.
+The script saves the original visibility locally in `data/backups/`. To undo:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\hide-unused-cable.py --restore
+```
+
 ## Installation
 
 1. Clone the repository into a permanent folder:
